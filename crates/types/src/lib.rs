@@ -180,7 +180,7 @@ impl MessageHeader {
 
     /// Increment hop count
     pub fn increment_hop(&mut self) -> Result<(), anyhow::Error> {
-        if self.hop >= 255 {
+        if self.hop == 255 {
             return Err(anyhow::anyhow!("Hop count overflow"));
         }
         self.hop += 1;
@@ -294,5 +294,94 @@ mod tests {
         // Should be expired immediately with 0 TTL
         std::thread::sleep(std::time::Duration::from_millis(10));
         assert!(record.is_expired());
+    }
+
+    #[test]
+    fn test_calculate_msg_id_deterministic() {
+        let topic = TopicId::new([1u8; 32]);
+        let epoch = 12345u64;
+        let signer = PeerId::new([2u8; 32]);
+        let payload_hash = [3u8; 32];
+
+        // Calculate message ID twice - should be identical
+        let msg_id1 = MessageHeader::calculate_msg_id(&topic, epoch, &signer, &payload_hash);
+        let msg_id2 = MessageHeader::calculate_msg_id(&topic, epoch, &signer, &payload_hash);
+
+        assert_eq!(msg_id1, msg_id2, "Message ID calculation should be deterministic");
+    }
+
+    #[test]
+    fn test_calculate_msg_id_unique() {
+        let topic = TopicId::new([1u8; 32]);
+        let epoch = 12345u64;
+        let signer = PeerId::new([2u8; 32]);
+        let payload_hash1 = [3u8; 32];
+        let payload_hash2 = [4u8; 32];
+
+        // Different payload hashes should produce different message IDs
+        let msg_id1 = MessageHeader::calculate_msg_id(&topic, epoch, &signer, &payload_hash1);
+        let msg_id2 = MessageHeader::calculate_msg_id(&topic, epoch, &signer, &payload_hash2);
+
+        assert_ne!(msg_id1, msg_id2, "Different payloads should produce different message IDs");
+    }
+
+    #[test]
+    fn test_calculate_msg_id_epoch_sensitivity() {
+        let topic = TopicId::new([1u8; 32]);
+        let epoch1 = 12345u64;
+        let epoch2 = 12346u64;
+        let signer = PeerId::new([2u8; 32]);
+        let payload_hash = [3u8; 32];
+
+        // Different epochs should produce different message IDs
+        let msg_id1 = MessageHeader::calculate_msg_id(&topic, epoch1, &signer, &payload_hash);
+        let msg_id2 = MessageHeader::calculate_msg_id(&topic, epoch2, &signer, &payload_hash);
+
+        assert_ne!(msg_id1, msg_id2, "Different epochs should produce different message IDs");
+    }
+
+    #[test]
+    fn test_calculate_msg_id_signer_sensitivity() {
+        let topic = TopicId::new([1u8; 32]);
+        let epoch = 12345u64;
+        let signer1 = PeerId::new([2u8; 32]);
+        let signer2 = PeerId::new([3u8; 32]);
+        let payload_hash = [4u8; 32];
+
+        // Different signers should produce different message IDs
+        let msg_id1 = MessageHeader::calculate_msg_id(&topic, epoch, &signer1, &payload_hash);
+        let msg_id2 = MessageHeader::calculate_msg_id(&topic, epoch, &signer2, &payload_hash);
+
+        assert_ne!(msg_id1, msg_id2, "Different signers should produce different message IDs");
+    }
+
+    #[test]
+    fn test_calculate_msg_id_topic_sensitivity() {
+        let topic1 = TopicId::new([1u8; 32]);
+        let topic2 = TopicId::new([2u8; 32]);
+        let epoch = 12345u64;
+        let signer = PeerId::new([3u8; 32]);
+        let payload_hash = [4u8; 32];
+
+        // Different topics should produce different message IDs
+        let msg_id1 = MessageHeader::calculate_msg_id(&topic1, epoch, &signer, &payload_hash);
+        let msg_id2 = MessageHeader::calculate_msg_id(&topic2, epoch, &signer, &payload_hash);
+
+        assert_ne!(msg_id1, msg_id2, "Different topics should produce different message IDs");
+    }
+
+    #[test]
+    fn test_message_header_with_calculated_id() {
+        let topic = TopicId::new([1u8; 32]);
+        let epoch = 12345u64;
+        let signer = PeerId::new([2u8; 32]);
+        let payload_hash = [3u8; 32];
+
+        let mut header = MessageHeader::new(topic, MessageKind::Eager, 10);
+        header.msg_id = MessageHeader::calculate_msg_id(&topic, epoch, &signer, &payload_hash);
+
+        // Verify msg_id is not all zeros
+        assert_ne!(header.msg_id, [0u8; 32], "Message ID should be calculated");
+        assert_eq!(header.msg_id.len(), 32, "Message ID should be 32 bytes");
     }
 }
