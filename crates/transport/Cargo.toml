@@ -13,9 +13,7 @@ tokio-util = { workspace = true }
 async-trait = { workspace = true }
 bytes = { workspace = true }
 anyhow = { workspace = true }
-
-# QUIC transport (placeholder for ant-quic)
-# ant-quic = { path = "../../../ant-quic" }
+ant-quic = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }

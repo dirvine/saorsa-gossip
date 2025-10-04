@@ -29,10 +29,11 @@ bytes = "1.5"
 anyhow = "1.0"
 
 # Cryptography (PQC)
-# Note: These will need actual PQC implementations
-# saorsa-pqc = { path = "../saorsa-pqc" }
-# saorsa-mls = { path = "../saorsa-mls" }
-# ant-quic = { path = "../ant-quic" }
+saorsa-pqc = "0.3.14"
+saorsa-mls = "0.2.0"
+
+# QUIC transport
+ant-quic = "0.10.1"
 
 # Hashing
 blake3 = "1.5"

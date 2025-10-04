@@ -11,6 +11,7 @@ saorsa-gossip-types = { path = "../types" }
 anyhow = { workspace = true }
 serde = { workspace = true }
 blake3 = { workspace = true }
+saorsa-pqc = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }

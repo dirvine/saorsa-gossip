@@ -10,6 +10,8 @@ repository.workspace = true
 saorsa-gossip-types = { path = "../types" }
 anyhow = { workspace = true }
 serde = { workspace = true }
+saorsa-mls = { workspace = true }
+saorsa-pqc = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
