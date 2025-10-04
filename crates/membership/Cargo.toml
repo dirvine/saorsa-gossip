@@ -5,10 +5,13 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
+description = "Membership protocols for Saorsa Gossip: HyParView partial views and SWIM failure detection"
+keywords = ["p2p", "gossip", "membership", "swim", "hyparview"]
+categories = ["network-programming", "algorithms"]
 
 [dependencies]
-saorsa-gossip-types = { path = "../types" }
-saorsa-gossip-transport = { path = "../transport" }
+saorsa-gossip-types = { version = "0.1.0", path = "../types" }
+saorsa-gossip-transport = { version = "0.1.0", path = "../transport" }
 tokio = { workspace = true }
 async-trait = { workspace = true }
 anyhow = { workspace = true }

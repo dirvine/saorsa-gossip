@@ -5,6 +5,9 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
+description = "Core types for Saorsa Gossip: TopicId, PeerId, MessageHeader, and wire format"
+keywords = ["p2p", "gossip", "distributed", "networking", "types"]
+categories = ["network-programming", "data-structures"]
 
 [dependencies]
 bytes = { workspace = true }

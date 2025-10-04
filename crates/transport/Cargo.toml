@@ -5,9 +5,12 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
+description = "QUIC transport for Saorsa Gossip with ant-quic, NAT traversal, and stream multiplexing"
+keywords = ["p2p", "gossip", "quic", "nat-traversal", "networking"]
+categories = ["network-programming", "asynchronous"]
 
 [dependencies]
-saorsa-gossip-types = { path = "../types" }
+saorsa-gossip-types = { version = "0.1.0", path = "../types" }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 async-trait = { workspace = true }

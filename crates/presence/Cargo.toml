@@ -5,9 +5,12 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
+description = "Presence beacons and FOAF discovery for Saorsa Gossip overlay network"
+keywords = ["p2p", "gossip", "presence", "discovery", "foaf"]
+categories = ["network-programming"]
 
 [dependencies]
-saorsa-gossip-types = { path = "../types" }
+saorsa-gossip-types = { version = "0.1.0", path = "../types" }
 tokio = { workspace = true }
 async-trait = { workspace = true }
 anyhow = { workspace = true }

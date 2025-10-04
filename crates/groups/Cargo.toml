@@ -5,9 +5,12 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
+description = "MLS group management wrapper for Saorsa Gossip (RFC 9420 compliant)"
+keywords = ["mls", "e2ee", "groups", "encryption", "messaging"]
+categories = ["cryptography"]
 
 [dependencies]
-saorsa-gossip-types = { path = "../types" }
+saorsa-gossip-types = { version = "0.1.0", path = "../types" }
 anyhow = { workspace = true }
 serde = { workspace = true }
 saorsa-mls = { workspace = true }

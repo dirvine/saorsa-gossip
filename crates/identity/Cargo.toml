@@ -5,9 +5,12 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
+description = "Post-quantum identity management for Saorsa Gossip: ML-DSA-65 keypairs and PeerId derivation"
+keywords = ["post-quantum", "ml-dsa", "identity", "cryptography", "pqc"]
+categories = ["cryptography"]
 
 [dependencies]
-saorsa-gossip-types = { path = "../types" }
+saorsa-gossip-types = { version = "0.1.0", path = "../types" }
 anyhow = { workspace = true }
 serde = { workspace = true }
 blake3 = { workspace = true }

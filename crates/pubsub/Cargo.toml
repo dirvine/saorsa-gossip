@@ -5,11 +5,14 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
+description = "Pub/sub for Saorsa Gossip: Plumtree epidemic broadcast with EAGER/IHAVE/IWANT"
+keywords = ["p2p", "gossip", "pubsub", "plumtree", "broadcast"]
+categories = ["network-programming"]
 
 [dependencies]
-saorsa-gossip-types = { path = "../types" }
-saorsa-gossip-transport = { path = "../transport" }
-saorsa-gossip-membership = { path = "../membership" }
+saorsa-gossip-types = { version = "0.1.0", path = "../types" }
+saorsa-gossip-transport = { version = "0.1.0", path = "../transport" }
+saorsa-gossip-membership = { version = "0.1.0", path = "../membership" }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 async-trait = { workspace = true }

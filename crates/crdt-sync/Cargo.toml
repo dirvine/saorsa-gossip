@@ -5,9 +5,12 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
+description = "Delta-CRDTs for Saorsa Gossip: OR-Set, LWW-Register with anti-entropy sync"
+keywords = ["crdt", "distributed", "synchronization", "delta-crdt", "or-set"]
+categories = ["data-structures", "algorithms"]
 
 [dependencies]
-saorsa-gossip-types = { path = "../types" }
+saorsa-gossip-types = { version = "0.1.0", path = "../types" }
 tokio = { workspace = true }
 anyhow = { workspace = true }
 serde = { workspace = true }
