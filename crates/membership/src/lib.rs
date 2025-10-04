@@ -6,7 +6,9 @@
 //! - Periodic shuffling and anti-entropy
 
 use anyhow::{anyhow, Result};
+use saorsa_gossip_transport::{GossipTransport, StreamType};
 use saorsa_gossip_types::PeerId;
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -28,6 +30,28 @@ pub const SHUFFLE_PERIOD_SECS: u64 = 30;
 pub const SWIM_PROBE_INTERVAL_SECS: u64 = 1;
 /// SWIM suspect timeout (per SPEC.md)
 pub const SWIM_SUSPECT_TIMEOUT_SECS: u64 = 3;
+
+/// SWIM protocol messages
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum SwimMessage {
+    /// Ping message to probe peer
+    Ping,
+    /// Ack response to ping
+    Ack,
+}
+
+/// HyParView protocol messages
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum HyParViewMessage {
+    /// Join request
+    Join(PeerId),
+    /// Shuffle request with peer list
+    Shuffle(Vec<PeerId>),
+    /// ForwardJoin request
+    ForwardJoin(PeerId, usize),
+    /// Disconnect notification
+    Disconnect,
+}
 
 /// Membership management trait
 #[async_trait::async_trait]
@@ -70,22 +94,25 @@ struct SwimPeerEntry {
 }
 
 /// SWIM failure detector
-pub struct SwimDetector {
+pub struct SwimDetector<T: GossipTransport + 'static> {
     /// Peer states with timestamps
     states: Arc<RwLock<HashMap<PeerId, SwimPeerEntry>>>,
     /// Probe period in seconds
     probe_period: u64,
     /// Suspect timeout in seconds
     suspect_timeout: u64,
+    /// Transport layer for sending probes
+    transport: Arc<T>,
 }
 
-impl SwimDetector {
+impl<T: GossipTransport + 'static> SwimDetector<T> {
     /// Create a new SWIM detector
-    pub fn new(probe_period: u64, suspect_timeout: u64) -> Self {
+    pub fn new(probe_period: u64, suspect_timeout: u64, transport: Arc<T>) -> Self {
         let detector = Self {
             states: Arc::new(RwLock::new(HashMap::new())),
             probe_period,
             suspect_timeout,
+            transport,
         };
 
         // Start background probing task
@@ -169,6 +196,7 @@ impl SwimDetector {
     fn spawn_probe_task(&self) {
         let states = self.states.clone();
         let probe_period = self.probe_period;
+        let transport = self.transport.clone();
 
         tokio::spawn(async move {
             let mut interval = time::interval(Duration::from_secs(probe_period));
@@ -185,9 +213,14 @@ impl SwimDetector {
                 drop(states_guard);
 
                 if let Some(&peer) = alive_peers.first() {
-                    // TODO: Send PING to peer via transport
-                    // If no response, mark as suspect
-                    trace!(peer_id = %peer, "SWIM: Would probe peer (TODO: transport)");
+                    // Send PING to peer via transport
+                    trace!(peer_id = %peer, "SWIM: Probing peer");
+                    let ping_msg = SwimMessage::Ping;
+                    if let Ok(bytes) = bincode::serialize(&ping_msg) {
+                        let _ = transport.send_to_peer(peer, StreamType::Membership, bytes.into()).await;
+                    }
+                    // Note: Response handling would mark peer alive/suspect
+                    // For now, we'll rely on manual state updates
                 }
             }
         });
@@ -235,28 +268,31 @@ impl SwimDetector {
 }
 
 /// HyParView membership implementation
-pub struct HyParViewMembership {
+pub struct HyParViewMembership<T: GossipTransport + 'static> {
     /// Active view (for routing)
     active: Arc<RwLock<HashSet<PeerId>>>,
     /// Passive view (for healing)
     passive: Arc<RwLock<HashSet<PeerId>>>,
     /// SWIM failure detector
-    swim: SwimDetector,
+    swim: SwimDetector<T>,
     /// Active view degree
     active_degree: usize,
     /// Passive view degree
     passive_degree: usize,
+    /// Transport layer for sending messages
+    transport: Arc<T>,
 }
 
-impl HyParViewMembership {
+impl<T: GossipTransport + 'static> HyParViewMembership<T> {
     /// Create a new HyParView membership manager
-    pub fn new(active_degree: usize, passive_degree: usize) -> Self {
+    pub fn new(active_degree: usize, passive_degree: usize, transport: Arc<T>) -> Self {
         let membership = Self {
             active: Arc::new(RwLock::new(HashSet::new())),
             passive: Arc::new(RwLock::new(HashSet::new())),
-            swim: SwimDetector::new(SWIM_PROBE_INTERVAL_SECS, SWIM_SUSPECT_TIMEOUT_SECS),
+            swim: SwimDetector::new(SWIM_PROBE_INTERVAL_SECS, SWIM_SUSPECT_TIMEOUT_SECS, transport.clone()),
             active_degree,
             passive_degree,
+            transport,
         };
 
         // Start background shuffle task
@@ -267,7 +303,7 @@ impl HyParViewMembership {
     }
 
     /// Get the SWIM detector
-    pub fn swim(&self) -> &SwimDetector {
+    pub fn swim(&self) -> &SwimDetector<T> {
         &self.swim
     }
 
@@ -296,9 +332,15 @@ impl HyParViewMembership {
             "HyParView: Shuffling passive view"
         );
 
-        // TODO: Send SHUFFLE message to target peer via transport
-        // Peer will respond with their own passive view subset
-        // We'll merge responses into our passive view
+        // Send SHUFFLE message to target peer via transport
+        let shuffle_msg = HyParViewMessage::Shuffle(to_exchange);
+        if let Ok(bytes) = bincode::serialize(&shuffle_msg) {
+            self.transport
+                .send_to_peer(target, StreamType::Membership, bytes.into())
+                .await?;
+        }
+        // Note: Peer will respond with their own passive view subset
+        // We'll merge responses into our passive view via handle_shuffle_response()
 
         Ok(())
     }
@@ -433,14 +475,8 @@ impl HyParViewMembership {
     }
 }
 
-impl Default for HyParViewMembership {
-    fn default() -> Self {
-        Self::new(DEFAULT_ACTIVE_DEGREE, DEFAULT_PASSIVE_DEGREE)
-    }
-}
-
 #[async_trait::async_trait]
-impl Membership for HyParViewMembership {
+impl<T: GossipTransport + 'static> Membership for HyParViewMembership<T> {
     async fn join(&self, seeds: Vec<String>) -> Result<()> {
         // Parse seed addresses and add to active view
         for seed in seeds {
@@ -527,17 +563,26 @@ impl Membership for HyParViewMembership {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use saorsa_gossip_transport::{QuicTransport, TransportConfig};
+
+    fn test_transport() -> Arc<QuicTransport> {
+        Arc::new(QuicTransport::new(TransportConfig::default()))
+    }
+
+    fn test_membership() -> HyParViewMembership<QuicTransport> {
+        HyParViewMembership::new(DEFAULT_ACTIVE_DEGREE, DEFAULT_PASSIVE_DEGREE, test_transport())
+    }
 
     #[tokio::test]
     async fn test_hyparview_creation() {
-        let membership = HyParViewMembership::default();
+        let membership = test_membership();
         assert_eq!(membership.active_view().len(), 0);
         assert_eq!(membership.passive_view().len(), 0);
     }
 
     #[tokio::test]
     async fn test_add_active_peer() {
-        let membership = HyParViewMembership::default();
+        let membership = test_membership();
         let peer = PeerId::new([1u8; 32]);
 
         membership.add_active(peer).await.ok();
@@ -548,7 +593,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_remove_active_peer() {
-        let membership = HyParViewMembership::default();
+        let membership = test_membership();
         let peer = PeerId::new([1u8; 32]);
 
         membership.add_active(peer).await.ok();
@@ -560,7 +605,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_active_view_capacity() {
-        let membership = HyParViewMembership::new(3, 10);
+        let transport = test_transport();
+        let membership = HyParViewMembership::new(3, 10, transport);
 
         // Add 5 peers (more than capacity)
         for i in 0..5 {
@@ -579,7 +625,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_swim_states() {
-        let swim = SwimDetector::new(1, 3);
+        let transport = test_transport();
+        let swim = SwimDetector::new(1, 3, transport);
         let peer = PeerId::new([1u8; 32]);
 
         swim.mark_alive(peer).await;
@@ -594,7 +641,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_swim_suspect_timeout() {
-        let swim = SwimDetector::new(1, 1); // 1s timeout
+        let transport = test_transport();
+        let swim = SwimDetector::new(1, 1, transport); // 1s timeout
         let peer = PeerId::new([1u8; 32]);
 
         swim.mark_alive(peer).await;
@@ -609,7 +657,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_promote_from_passive() {
-        let membership = HyParViewMembership::default();
+        let membership = test_membership();
         let peer = PeerId::new([1u8; 32]);
 
         // Add to passive
@@ -630,7 +678,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_degree_maintenance() {
-        let membership = HyParViewMembership::new(5, 20);
+        let transport = test_transport();
+        let membership = HyParViewMembership::new(5, 20, transport);
 
         // Add many peers to passive
         for i in 0..15 {
@@ -650,7 +699,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_peers_in_state() {
-        let swim = SwimDetector::new(1, 100); // Long timeout so background task doesn't interfere
+        let transport = test_transport();
+        let swim = SwimDetector::new(1, 100, transport); // Long timeout so background task doesn't interfere
 
         let peer1 = PeerId::new([1u8; 32]);
         let peer2 = PeerId::new([2u8; 32]);
