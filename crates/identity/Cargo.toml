@@ -1,0 +1,16 @@
+[package]
+name = "saorsa-gossip-identity"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+saorsa-gossip-types = { path = "../types" }
+anyhow = { workspace = true }
+serde = { workspace = true }
+blake3 = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }

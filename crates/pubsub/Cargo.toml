@@ -1,0 +1,17 @@
+[package]
+name = "saorsa-gossip-pubsub"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+saorsa-gossip-types = { path = "../types" }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+bytes = { workspace = true }
+anyhow = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }

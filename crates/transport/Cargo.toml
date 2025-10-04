@@ -1,0 +1,21 @@
+[package]
+name = "saorsa-gossip-transport"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+saorsa-gossip-types = { path = "../types" }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+async-trait = { workspace = true }
+bytes = { workspace = true }
+anyhow = { workspace = true }
+
+# QUIC transport (placeholder for ant-quic)
+# ant-quic = { path = "../../../ant-quic" }
+
+[dev-dependencies]
+proptest = { workspace = true }

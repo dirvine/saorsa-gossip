@@ -1,0 +1,15 @@
+[package]
+name = "saorsa-gossip-groups"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+saorsa-gossip-types = { path = "../types" }
+anyhow = { workspace = true }
+serde = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
