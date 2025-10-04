@@ -13,7 +13,8 @@ tokio-util = { workspace = true }
 async-trait = { workspace = true }
 bytes = { workspace = true }
 anyhow = { workspace = true }
-ant-quic = { workspace = true }
+tracing = { workspace = true }
+ant-quic = "0.10.1"
 
 [dev-dependencies]
 proptest = { workspace = true }

@@ -4,7 +4,11 @@
 //! - Three control streams: `mship`, `pubsub`, `bulk`
 //! - 0-RTT resumption where safe
 //! - Path migration by default
-//! - PQC handshake (placeholder for ant-quic integration)
+//! - PQC handshake with ant-quic
+
+mod ant_quic_transport;
+
+pub use ant_quic_transport::AntQuicTransport;
 
 use anyhow::Result;
 use saorsa_gossip_types::PeerId;
