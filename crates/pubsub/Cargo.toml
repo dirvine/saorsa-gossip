@@ -8,10 +8,19 @@ repository.workspace = true
 
 [dependencies]
 saorsa-gossip-types = { path = "../types" }
+saorsa-gossip-transport = { path = "../transport" }
+saorsa-gossip-membership = { path = "../membership" }
 tokio = { workspace = true }
+tokio-util = { workspace = true }
 async-trait = { workspace = true }
-bytes = { workspace = true }
+bytes = { version = "1.5", features = ["serde"] }
 anyhow = { workspace = true }
+serde = { workspace = true }
+bincode = { workspace = true }
+lru = { workspace = true }
+tracing = { workspace = true }
+blake3 = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
+tokio-test = { workspace = true }
