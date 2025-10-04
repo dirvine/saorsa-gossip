@@ -13,6 +13,8 @@ async-trait = { workspace = true }
 anyhow = { workspace = true }
 serde = { workspace = true }
 bytes = { workspace = true }
+tracing = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
+tokio-test = { workspace = true }
