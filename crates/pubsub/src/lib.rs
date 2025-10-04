@@ -18,6 +18,7 @@
 use anyhow::{anyhow, Result};
 use bytes::Bytes;
 use lru::LruCache;
+use saorsa_gossip_transport::{GossipTransport, StreamType};
 use saorsa_gossip_types::{MessageHeader, MessageKind, PeerId, TopicId};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -194,22 +195,25 @@ pub trait PubSub: Send + Sync {
 }
 
 /// Plumtree pub/sub implementation
-pub struct PlumtreePubSub {
+pub struct PlumtreePubSub<T: GossipTransport + 'static> {
     /// Per-topic state
     topics: Arc<RwLock<HashMap<TopicId, TopicState>>>,
     /// Local peer ID
     peer_id: PeerId,
     /// Epoch for message IDs (system time in seconds)
     epoch_start: std::time::SystemTime,
+    /// Transport layer for sending messages
+    transport: Arc<T>,
 }
 
-impl PlumtreePubSub {
+impl<T: GossipTransport + 'static> PlumtreePubSub<T> {
     /// Create a new Plumtree pub/sub instance
-    pub fn new(peer_id: PeerId) -> Self {
+    pub fn new(peer_id: PeerId, transport: Arc<T>) -> Self {
         let pubsub = Self {
             topics: Arc::new(RwLock::new(HashMap::new())),
             peer_id,
             epoch_start: std::time::SystemTime::UNIX_EPOCH,
+            transport,
         };
 
         // Start background tasks
@@ -282,8 +286,11 @@ impl PlumtreePubSub {
 
         for peer in eager_peers {
             trace!(peer_id = %peer, msg_id = ?msg_id, "Sending EAGER");
-            // TODO: Send via transport layer
-            // transport.send_to_peer(peer, _message.clone()).await?;
+            let bytes = bincode::serialize(&_message)
+                .map_err(|e| anyhow!("Serialization failed: {}", e))?;
+            self.transport
+                .send_to_peer(peer, StreamType::PubSub, bytes.into())
+                .await?;
         }
 
         // Batch msg_id to pending_ihave
@@ -348,8 +355,11 @@ impl PlumtreePubSub {
         // Forward EAGER
         for peer in eager_peers {
             trace!(peer_id = %peer, msg_id = ?msg_id, "Forwarding EAGER");
-            // TODO: Send via transport
-            // transport.send_to_peer(peer, message.clone()).await?;
+            let bytes = bincode::serialize(&message)
+                .map_err(|e| anyhow!("Serialization failed: {}", e))?;
+            self.transport
+                .send_to_peer(peer, StreamType::PubSub, bytes.into())
+                .await?;
         }
 
         Ok(())
@@ -382,9 +392,25 @@ impl PlumtreePubSub {
 
         if !requested.is_empty() {
             debug!(peer_id = %from, count = requested.len(), "Sending IWANT");
-            // TODO: Send IWANT via transport
-            // let iwant_msg = create_iwant_message(requested);
-            // transport.send_to_peer(from, iwant_msg).await?;
+            // Create IWANT message
+            let iwant_header = MessageHeader {
+                version: 1,
+                topic,
+                msg_id: requested[0], // Use first ID as header
+                kind: MessageKind::IWant,
+                hop: 0,
+                ttl: 10,
+            };
+            let iwant_msg = GossipMessage {
+                header: iwant_header,
+                payload: Some(bincode::serialize(&requested).map_err(|e| anyhow!("Serialization failed: {}", e))?.into()),
+                signature: vec![], // TODO: Sign
+            };
+            let bytes = bincode::serialize(&iwant_msg)
+                .map_err(|e| anyhow!("Serialization failed: {}", e))?;
+            self.transport
+                .send_to_peer(from, StreamType::PubSub, bytes.into())
+                .await?;
         }
 
         Ok(())
@@ -419,8 +445,11 @@ impl PlumtreePubSub {
                 signature: self.sign_message(&cached.header),
             };
 
-            // TODO: Send via transport
-            // transport.send_to_peer(from, _message).await?;
+            let bytes = bincode::serialize(&_message)
+                .map_err(|e| anyhow!("Serialization failed: {}", e))?;
+            self.transport
+                .send_to_peer(from, StreamType::PubSub, bytes.into())
+                .await?;
         }
 
         Ok(())
@@ -429,6 +458,7 @@ impl PlumtreePubSub {
     /// Spawn background task to flush IHAVE batches
     fn spawn_ihave_flusher(&self) {
         let topics = self.topics.clone();
+        let transport = self.transport.clone();
 
         tokio::spawn(async move {
             let mut interval = time::interval(Duration::from_millis(IHAVE_FLUSH_INTERVAL_MS));
@@ -453,11 +483,25 @@ impl PlumtreePubSub {
 
                     trace!(topic = ?topic_id, batch_size = batch.len(), peer_count = lazy_peers.len(), "Flushing IHAVE batch");
 
-                    // TODO: Send IHAVE to each lazy peer
-                    // for peer in lazy_peers {
-                    //     let ihave_msg = create_ihave_message(batch.clone());
-                    //     transport.send_to_peer(peer, ihave_msg).await.ok();
-                    // }
+                    // Send IHAVE to each lazy peer
+                    for peer in lazy_peers {
+                        let ihave_header = MessageHeader {
+                            version: 1,
+                            topic: *topic_id,
+                            msg_id: batch[0], // Use first ID as header
+                            kind: MessageKind::IHave,
+                            hop: 0,
+                            ttl: 10,
+                        };
+                        let ihave_msg = GossipMessage {
+                            header: ihave_header,
+                            payload: Some(bincode::serialize(&batch).unwrap_or_default().into()),
+                            signature: vec![], // TODO: Sign
+                        };
+                        if let Ok(bytes) = bincode::serialize(&ihave_msg) {
+                            let _ = transport.send_to_peer(peer, StreamType::PubSub, bytes.into()).await;
+                        }
+                    }
                 }
             }
         });
@@ -516,7 +560,7 @@ impl PlumtreePubSub {
 }
 
 #[async_trait::async_trait]
-impl PubSub for PlumtreePubSub {
+impl<T: GossipTransport + 'static> PubSub for PlumtreePubSub<T> {
     async fn publish(&self, topic: TopicId, data: Bytes) -> Result<()> {
         self.publish_local(topic, data).await
     }
@@ -544,6 +588,7 @@ impl PubSub for PlumtreePubSub {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use saorsa_gossip_transport::{QuicTransport, TransportConfig};
 
     fn test_peer_id(id: u8) -> PeerId {
         let mut bytes = [0u8; 32];
@@ -551,16 +596,22 @@ mod tests {
         PeerId::new(bytes)
     }
 
+    fn test_transport() -> Arc<QuicTransport> {
+        Arc::new(QuicTransport::new(TransportConfig::default()))
+    }
+
     #[tokio::test]
     async fn test_pubsub_creation() {
         let peer_id = test_peer_id(1);
-        let _pubsub = PlumtreePubSub::new(peer_id);
+        let transport = test_transport();
+        let _pubsub = PlumtreePubSub::new(peer_id, transport);
     }
 
     #[tokio::test]
     async fn test_publish_and_subscribe() {
         let peer_id = test_peer_id(1);
-        let pubsub = PlumtreePubSub::new(peer_id);
+        let transport = test_transport();
+        let pubsub = PlumtreePubSub::new(peer_id, transport);
         let topic = TopicId::new([1u8; 32]);
 
         let mut rx = pubsub.subscribe(topic);
@@ -582,7 +633,8 @@ mod tests {
     #[tokio::test]
     async fn test_message_caching() {
         let peer_id = test_peer_id(1);
-        let pubsub = PlumtreePubSub::new(peer_id);
+        let transport = test_transport();
+        let pubsub = PlumtreePubSub::new(peer_id, transport);
         let topic = TopicId::new([1u8; 32]);
 
         let payload = Bytes::from("test");
@@ -599,7 +651,8 @@ mod tests {
     #[tokio::test]
     async fn test_duplicate_detection_prune() {
         let peer_id = test_peer_id(1);
-        let pubsub = PlumtreePubSub::new(peer_id);
+        let transport = test_transport();
+        let pubsub = PlumtreePubSub::new(peer_id, transport);
         let topic = TopicId::new([1u8; 32]);
         let from_peer = test_peer_id(2);
 
@@ -640,7 +693,8 @@ mod tests {
     #[tokio::test]
     async fn test_ihave_handling() {
         let peer_id = test_peer_id(1);
-        let pubsub = PlumtreePubSub::new(peer_id);
+        let transport = test_transport();
+        let pubsub = PlumtreePubSub::new(peer_id, transport);
         let topic = TopicId::new([1u8; 32]);
         let from_peer = test_peer_id(2);
 
@@ -657,7 +711,8 @@ mod tests {
     #[tokio::test]
     async fn test_iwant_graft() {
         let peer_id = test_peer_id(1);
-        let pubsub = PlumtreePubSub::new(peer_id);
+        let transport = test_transport();
+        let pubsub = PlumtreePubSub::new(peer_id, transport);
         let topic = TopicId::new([1u8; 32]);
         let from_peer = test_peer_id(2);
 
@@ -687,7 +742,8 @@ mod tests {
     #[tokio::test]
     async fn test_degree_maintenance() {
         let peer_id = test_peer_id(1);
-        let pubsub = PlumtreePubSub::new(peer_id);
+        let transport = test_transport();
+        let pubsub = PlumtreePubSub::new(peer_id, transport);
         let topic = TopicId::new([1u8; 32]);
 
         // Add many peers to lazy
@@ -713,7 +769,8 @@ mod tests {
     #[tokio::test]
     async fn test_cache_expiration() {
         let peer_id = test_peer_id(1);
-        let pubsub = PlumtreePubSub::new(peer_id);
+        let transport = test_transport();
+        let pubsub = PlumtreePubSub::new(peer_id, transport);
         let topic = TopicId::new([1u8; 32]);
 
         let payload = Bytes::from("test");

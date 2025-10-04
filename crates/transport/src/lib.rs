@@ -33,6 +33,17 @@ pub trait GossipTransport: Send + Sync {
 
     /// Close the transport
     async fn close(&self) -> Result<()>;
+
+    /// Send data to a specific peer on a specific stream type
+    async fn send_to_peer(
+        &self,
+        peer: PeerId,
+        stream_type: StreamType,
+        data: bytes::Bytes,
+    ) -> Result<()>;
+
+    /// Receive a message from any peer on any stream
+    async fn receive_message(&self) -> Result<(PeerId, StreamType, bytes::Bytes)>;
 }
 
 /// Transport configuration
@@ -65,22 +76,41 @@ pub struct QuicTransport {
     config: TransportConfig,
     connection_tx: mpsc::UnboundedSender<(PeerId, SocketAddr)>,
     connection_rx: mpsc::UnboundedReceiver<(PeerId, SocketAddr)>,
+    /// Channel for sending messages to peers
+    send_tx: mpsc::UnboundedSender<(PeerId, StreamType, bytes::Bytes)>,
+    #[allow(dead_code)]
+    send_rx: mpsc::UnboundedReceiver<(PeerId, StreamType, bytes::Bytes)>,
+    /// Channel for receiving messages from peers
+    recv_tx: mpsc::UnboundedSender<(PeerId, StreamType, bytes::Bytes)>,
+    #[allow(dead_code)]
+    recv_rx: mpsc::UnboundedReceiver<(PeerId, StreamType, bytes::Bytes)>,
 }
 
 impl QuicTransport {
     /// Create a new QUIC transport with the given configuration
     pub fn new(config: TransportConfig) -> Self {
         let (connection_tx, connection_rx) = mpsc::unbounded_channel();
+        let (send_tx, send_rx) = mpsc::unbounded_channel();
+        let (recv_tx, recv_rx) = mpsc::unbounded_channel();
         Self {
             config,
             connection_tx,
             connection_rx,
+            send_tx,
+            send_rx,
+            recv_tx,
+            recv_rx,
         }
     }
 
     /// Get a receiver for incoming connections
     pub fn connection_receiver(&mut self) -> &mut mpsc::UnboundedReceiver<(PeerId, SocketAddr)> {
         &mut self.connection_rx
+    }
+
+    /// Get a sender for simulating received messages (for testing)
+    pub fn get_recv_tx(&self) -> mpsc::UnboundedSender<(PeerId, StreamType, bytes::Bytes)> {
+        self.recv_tx.clone()
     }
 }
 
@@ -102,6 +132,33 @@ impl GossipTransport for QuicTransport {
     async fn close(&self) -> Result<()> {
         // Placeholder implementation
         Ok(())
+    }
+
+    async fn send_to_peer(
+        &self,
+        peer: PeerId,
+        stream_type: StreamType,
+        data: bytes::Bytes,
+    ) -> Result<()> {
+        // Placeholder implementation - will integrate with ant-quic
+        // In real implementation, this would open a QUIC stream to the peer
+        self.send_tx
+            .send((peer, stream_type, data))
+            .map_err(|e| anyhow::anyhow!("Failed to send to peer: {}", e))?;
+        Ok(())
+    }
+
+    async fn receive_message(&self) -> Result<(PeerId, StreamType, bytes::Bytes)> {
+        // Placeholder implementation - will integrate with ant-quic
+        // In real implementation, this would receive from QUIC streams
+        self.recv_tx
+            .send((
+                PeerId::new([0u8; 32]),
+                StreamType::PubSub,
+                bytes::Bytes::new(),
+            ))
+            .ok();
+        Err(anyhow::anyhow!("No messages available"))
     }
 }
 
