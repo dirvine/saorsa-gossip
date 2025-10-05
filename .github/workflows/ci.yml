@@ -97,11 +97,15 @@ jobs:
       - name: Run tests
         run: cargo test --all-features --all-targets
 
-      - name: Build coordinator binary
-        run: cargo build --release -p saorsa-coordinator
+      - name: Build binaries
+        run: |
+          cargo build --release -p saorsa-coordinator
+          cargo build --release -p saorsa-gossip
 
-      - name: Test coordinator binary
-        run: cargo test -p saorsa-coordinator
+      - name: Test binaries
+        run: |
+          cargo test -p saorsa-coordinator
+          cargo test -p saorsa-gossip
 
   coverage:
     name: Code Coverage
