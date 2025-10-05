@@ -1,8 +1,55 @@
 # Saorsa Gossip Overlay
 
-[![Crates.io](https://img.shields.io/crates/v/saorsa-gossip)](https://crates.io/crates/saorsa-gossip)
-[![Documentation](https://docs.rs/saorsa-gossip/badge.svg)](https://docs.rs/saorsa-gossip)
+[![CI](https://github.com/dirvine/saorsa-gossip/workflows/CI/badge.svg)](https://github.com/dirvine/saorsa-gossip/actions)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](LICENSE)
+[![Rust Version](https://img.shields.io/badge/rust-1.75%2B-blue.svg)](https://www.rust-lang.org)
+
+## 📦 Published Crates
+
+| Crate | Version | Docs | Downloads |
+|-------|---------|------|-----------|
+| [saorsa-gossip-types] | [![Crates.io](https://img.shields.io/crates/v/saorsa-gossip-types.svg)][types-crate] | [![Docs](https://docs.rs/saorsa-gossip-types/badge.svg)][types-docs] | [![Downloads](https://img.shields.io/crates/d/saorsa-gossip-types.svg)][types-crate] |
+| [saorsa-gossip-identity] | [![Crates.io](https://img.shields.io/crates/v/saorsa-gossip-identity.svg)][identity-crate] | [![Docs](https://docs.rs/saorsa-gossip-identity/badge.svg)][identity-docs] | [![Downloads](https://img.shields.io/crates/d/saorsa-gossip-identity.svg)][identity-crate] |
+| [saorsa-gossip-transport] | [![Crates.io](https://img.shields.io/crates/v/saorsa-gossip-transport.svg)][transport-crate] | [![Docs](https://docs.rs/saorsa-gossip-transport/badge.svg)][transport-docs] | [![Downloads](https://img.shields.io/crates/d/saorsa-gossip-transport.svg)][transport-crate] |
+| [saorsa-gossip-membership] | [![Crates.io](https://img.shields.io/crates/v/saorsa-gossip-membership.svg)][membership-crate] | [![Docs](https://docs.rs/saorsa-gossip-membership/badge.svg)][membership-docs] | [![Downloads](https://img.shields.io/crates/d/saorsa-gossip-membership.svg)][membership-crate] |
+| [saorsa-gossip-pubsub] | [![Crates.io](https://img.shields.io/crates/v/saorsa-gossip-pubsub.svg)][pubsub-crate] | [![Docs](https://docs.rs/saorsa-gossip-pubsub/badge.svg)][pubsub-docs] | [![Downloads](https://img.shields.io/crates/d/saorsa-gossip-pubsub.svg)][pubsub-crate] |
+| [saorsa-gossip-coordinator] | [![Crates.io](https://img.shields.io/crates/v/saorsa-gossip-coordinator.svg)][coordinator-crate] | [![Docs](https://docs.rs/saorsa-gossip-coordinator/badge.svg)][coordinator-docs] | [![Downloads](https://img.shields.io/crates/d/saorsa-gossip-coordinator.svg)][coordinator-crate] |
+| [saorsa-gossip-rendezvous] | [![Crates.io](https://img.shields.io/crates/v/saorsa-gossip-rendezvous.svg)][rendezvous-crate] | [![Docs](https://docs.rs/saorsa-gossip-rendezvous/badge.svg)][rendezvous-docs] | [![Downloads](https://img.shields.io/crates/d/saorsa-gossip-rendezvous.svg)][rendezvous-crate] |
+| [saorsa-gossip-groups] | [![Crates.io](https://img.shields.io/crates/v/saorsa-gossip-groups.svg)][groups-crate] | [![Docs](https://docs.rs/saorsa-gossip-groups/badge.svg)][groups-docs] | [![Downloads](https://img.shields.io/crates/d/saorsa-gossip-groups.svg)][groups-crate] |
+| [saorsa-gossip-presence] | [![Crates.io](https://img.shields.io/crates/v/saorsa-gossip-presence.svg)][presence-crate] | [![Docs](https://docs.rs/saorsa-gossip-presence/badge.svg)][presence-docs] | [![Downloads](https://img.shields.io/crates/d/saorsa-gossip-presence.svg)][presence-crate] |
+| [saorsa-gossip-crdt-sync] | [![Crates.io](https://img.shields.io/crates/v/saorsa-gossip-crdt-sync.svg)][crdt-crate] | [![Docs](https://docs.rs/saorsa-gossip-crdt-sync/badge.svg)][crdt-docs] | [![Downloads](https://img.shields.io/crates/d/saorsa-gossip-crdt-sync.svg)][crdt-crate] |
+
+[saorsa-gossip-types]: #core-crates
+[saorsa-gossip-identity]: #core-crates
+[saorsa-gossip-transport]: #core-crates
+[saorsa-gossip-membership]: #core-crates
+[saorsa-gossip-pubsub]: #core-crates
+[saorsa-gossip-coordinator]: #core-crates
+[saorsa-gossip-rendezvous]: #core-crates
+[saorsa-gossip-groups]: #core-crates
+[saorsa-gossip-presence]: #core-crates
+[saorsa-gossip-crdt-sync]: #core-crates
+
+[types-crate]: https://crates.io/crates/saorsa-gossip-types
+[types-docs]: https://docs.rs/saorsa-gossip-types
+[identity-crate]: https://crates.io/crates/saorsa-gossip-identity
+[identity-docs]: https://docs.rs/saorsa-gossip-identity
+[transport-crate]: https://crates.io/crates/saorsa-gossip-transport
+[transport-docs]: https://docs.rs/saorsa-gossip-transport
+[membership-crate]: https://crates.io/crates/saorsa-gossip-membership
+[membership-docs]: https://docs.rs/saorsa-gossip-membership
+[pubsub-crate]: https://crates.io/crates/saorsa-gossip-pubsub
+[pubsub-docs]: https://docs.rs/saorsa-gossip-pubsub
+[coordinator-crate]: https://crates.io/crates/saorsa-gossip-coordinator
+[coordinator-docs]: https://docs.rs/saorsa-gossip-coordinator
+[rendezvous-crate]: https://crates.io/crates/saorsa-gossip-rendezvous
+[rendezvous-docs]: https://docs.rs/saorsa-gossip-rendezvous
+[groups-crate]: https://crates.io/crates/saorsa-gossip-groups
+[groups-docs]: https://docs.rs/saorsa-gossip-groups
+[presence-crate]: https://crates.io/crates/saorsa-gossip-presence
+[presence-docs]: https://docs.rs/saorsa-gossip-presence
+[crdt-crate]: https://crates.io/crates/saorsa-gossip-crdt-sync
+[crdt-docs]: https://docs.rs/saorsa-gossip-crdt-sync
 
 A **post-quantum secure gossip overlay network** for decentralized peer-to-peer communication. Designed to replace DHT-based discovery with a contact-graph-aware gossip protocol, providing low-latency broadcast, partition tolerance, and quantum-resistant cryptography.
 
