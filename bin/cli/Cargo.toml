@@ -1,11 +1,13 @@
 [package]
-name = "saorsa-gossip"
+name = "saorsa-gossip-cli"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "CLI tool for Saorsa Gossip network - demo and testing"
+description = "CLI tool for Saorsa Gossip network - demonstration and testing"
+keywords = ["gossip", "p2p", "post-quantum", "networking", "cli"]
+categories = ["network-programming", "command-line-utilities"]
 
 [[bin]]
 name = "saorsa-gossip"

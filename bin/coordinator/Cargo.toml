@@ -1,11 +1,13 @@
 [package]
-name = "saorsa-coordinator"
+name = "saorsa-gossip-bin-coordinator"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Coordinator/bootstrap node for Saorsa Gossip network"
+description = "Coordinator/bootstrap node binary for Saorsa Gossip network"
+keywords = ["gossip", "p2p", "post-quantum", "networking", "coordinator"]
+categories = ["network-programming", "command-line-utilities"]
 
 [[bin]]
 name = "saorsa-coordinator"
