@@ -11,6 +11,7 @@ members = [
     "crates/coordinator",
     "crates/rendezvous",
     "bin/coordinator",
+    "bin/cli",
 ]
 resolver = "2"
 
