@@ -29,9 +29,9 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 saorsa-pqc = { workspace = true }
 
 # Workspace crates
-saorsa-gossip-types = { version = "0.1.3", path = "../../crates/types" }
-saorsa-gossip-identity = { version = "0.1.3", path = "../../crates/identity" }
-saorsa-gossip-transport = { version = "0.1.3", path = "../../crates/transport" }
-saorsa-gossip-coordinator = { version = "0.1.3", path = "../../crates/coordinator" }
-saorsa-gossip-membership = { version = "0.1.3", path = "../../crates/membership" }
-saorsa-gossip-pubsub = { version = "0.1.3", path = "../../crates/pubsub" }
+saorsa-gossip-types = { version = "0.1.4", path = "../../crates/types" }
+saorsa-gossip-identity = { version = "0.1.4", path = "../../crates/identity" }
+saorsa-gossip-transport = { version = "0.1.4", path = "../../crates/transport" }
+saorsa-gossip-coordinator = { version = "0.1.4", path = "../../crates/coordinator" }
+saorsa-gossip-membership = { version = "0.1.4", path = "../../crates/membership" }
+saorsa-gossip-pubsub = { version = "0.1.4", path = "../../crates/pubsub" }
