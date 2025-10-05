@@ -384,7 +384,10 @@ mod tests {
         let msg_id1 = MessageHeader::calculate_msg_id(&topic, epoch, &signer, &payload_hash);
         let msg_id2 = MessageHeader::calculate_msg_id(&topic, epoch, &signer, &payload_hash);
 
-        assert_eq!(msg_id1, msg_id2, "Message ID calculation should be deterministic");
+        assert_eq!(
+            msg_id1, msg_id2,
+            "Message ID calculation should be deterministic"
+        );
     }
 
     #[test]
@@ -399,7 +402,10 @@ mod tests {
         let msg_id1 = MessageHeader::calculate_msg_id(&topic, epoch, &signer, &payload_hash1);
         let msg_id2 = MessageHeader::calculate_msg_id(&topic, epoch, &signer, &payload_hash2);
 
-        assert_ne!(msg_id1, msg_id2, "Different payloads should produce different message IDs");
+        assert_ne!(
+            msg_id1, msg_id2,
+            "Different payloads should produce different message IDs"
+        );
     }
 
     #[test]
@@ -414,7 +420,10 @@ mod tests {
         let msg_id1 = MessageHeader::calculate_msg_id(&topic, epoch1, &signer, &payload_hash);
         let msg_id2 = MessageHeader::calculate_msg_id(&topic, epoch2, &signer, &payload_hash);
 
-        assert_ne!(msg_id1, msg_id2, "Different epochs should produce different message IDs");
+        assert_ne!(
+            msg_id1, msg_id2,
+            "Different epochs should produce different message IDs"
+        );
     }
 
     #[test]
@@ -429,7 +438,10 @@ mod tests {
         let msg_id1 = MessageHeader::calculate_msg_id(&topic, epoch, &signer1, &payload_hash);
         let msg_id2 = MessageHeader::calculate_msg_id(&topic, epoch, &signer2, &payload_hash);
 
-        assert_ne!(msg_id1, msg_id2, "Different signers should produce different message IDs");
+        assert_ne!(
+            msg_id1, msg_id2,
+            "Different signers should produce different message IDs"
+        );
     }
 
     #[test]
@@ -444,7 +456,10 @@ mod tests {
         let msg_id1 = MessageHeader::calculate_msg_id(&topic1, epoch, &signer, &payload_hash);
         let msg_id2 = MessageHeader::calculate_msg_id(&topic2, epoch, &signer, &payload_hash);
 
-        assert_ne!(msg_id1, msg_id2, "Different topics should produce different message IDs");
+        assert_ne!(
+            msg_id1, msg_id2,
+            "Different topics should produce different message IDs"
+        );
     }
 
     #[test]
@@ -490,7 +505,10 @@ mod tests {
         let topic1 = TopicId::from_entity("channel-A").expect("should create topic");
         let topic2 = TopicId::from_entity("channel-B").expect("should create topic");
 
-        assert_ne!(topic1, topic2, "Different entities should produce different topics");
+        assert_ne!(
+            topic1, topic2,
+            "Different entities should produce different topics"
+        );
     }
 
     #[test]

@@ -435,10 +435,7 @@ async fn handle_crdt(_action: CrdtAction, _config_dir: &std::path::Path) -> Resu
 }
 
 /// Handle rendezvous commands
-async fn handle_rendezvous(
-    _action: RendezvousAction,
-    _config_dir: &std::path::Path,
-) -> Result<()> {
+async fn handle_rendezvous(_action: RendezvousAction, _config_dir: &std::path::Path) -> Result<()> {
     println!("Rendezvous commands - Coming soon!");
     println!("This will demonstrate:");
     println!("  - Provider registration");

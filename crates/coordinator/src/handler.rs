@@ -40,7 +40,11 @@ impl CoordinatorHandler {
     /// Handle receiving a coordinator advert
     ///
     /// Validates signature and adds to cache if valid.
-    pub fn handle_advert(&self, advert: CoordinatorAdvert, public_key: &saorsa_pqc::MlDsaPublicKey) -> anyhow::Result<bool> {
+    pub fn handle_advert(
+        &self,
+        advert: CoordinatorAdvert,
+        public_key: &saorsa_pqc::MlDsaPublicKey,
+    ) -> anyhow::Result<bool> {
         // Verify signature
         let valid = advert.verify(public_key)?;
         if !valid {
@@ -55,7 +59,10 @@ impl CoordinatorHandler {
     ///
     /// Returns a response with known coordinators if query is valid.
     /// Returns None if query should not be answered (duplicate, expired, TTL=0).
-    pub fn handle_find_query(&self, mut query: FindCoordinatorQuery) -> Option<FindCoordinatorResponse> {
+    pub fn handle_find_query(
+        &self,
+        mut query: FindCoordinatorQuery,
+    ) -> Option<FindCoordinatorResponse> {
         // Check if we've seen this query before
         {
             let mut seen = self.seen_queries.lock().expect("lock poisoned");
@@ -301,11 +308,19 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(150));
 
         // Before pruning, len() should return 0 (filters valid adverts)
-        assert_eq!(handler.cache().len(), 0, "Expired adverts not counted by len()");
+        assert_eq!(
+            handler.cache().len(),
+            0,
+            "Expired adverts not counted by len()"
+        );
 
         // Prune to actually remove from LRU
         let pruned = handler.prune();
         assert_eq!(pruned, 1, "Should have pruned 1 expired advert");
-        assert_eq!(handler.cache().len(), 0, "Cache should be empty after prune");
+        assert_eq!(
+            handler.cache().len(),
+            0,
+            "Cache should be empty after prune"
+        );
     }
 }

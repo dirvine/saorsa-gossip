@@ -98,7 +98,8 @@ impl PresenceManager {
 
         // Spawn background task for beacon broadcasting
         let task_handle = tokio::spawn(async move {
-            let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(interval_secs));
+            let mut interval =
+                tokio::time::interval(tokio::time::Duration::from_secs(interval_secs));
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
             loop {
@@ -174,10 +175,7 @@ impl PresenceManager {
             let mut task = self.beacon_task.write().await;
             if let Some(handle) = task.take() {
                 // Wait up to 5 seconds for graceful shutdown
-                match tokio::time::timeout(
-                    tokio::time::Duration::from_secs(5),
-                    handle,
-                ).await {
+                match tokio::time::timeout(tokio::time::Duration::from_secs(5), handle).await {
                     Ok(join_result) => {
                         join_result.context("Beacon task panicked")?;
                     }
@@ -283,9 +281,7 @@ impl PresenceManager {
     pub async fn get_group_presence(&self, topic: TopicId) -> HashMap<PeerId, PresenceRecord> {
         let beacons = self.received_beacons.read().await;
 
-        beacons.get(&topic)
-            .cloned()
-            .unwrap_or_default()
+        beacons.get(&topic).cloned().unwrap_or_default()
     }
 
     /// Handle received beacon from a peer
@@ -414,11 +410,18 @@ mod tests {
         let peer = PeerId::new([2u8; 32]);
         let record = PresenceRecord::new([0u8; 32], vec!["127.0.0.1:8080".to_string()], 900);
 
-        manager.handle_beacon(topic, peer, record.clone()).await.expect("handle_beacon failed");
+        manager
+            .handle_beacon(topic, peer, record.clone())
+            .await
+            .expect("handle_beacon failed");
 
         // Should be able to retrieve the beacon
         let status = manager.get_status(peer, topic).await;
-        assert_eq!(status, PresenceStatus::Online, "Peer should be online after beacon");
+        assert_eq!(
+            status,
+            PresenceStatus::Online,
+            "Peer should be online after beacon"
+        );
     }
 
     #[tokio::test]
@@ -431,7 +434,10 @@ mod tests {
 
         // Create an expired beacon (TTL = 0)
         let record = PresenceRecord::new([0u8; 32], vec![], 0);
-        manager.handle_beacon(topic, peer, record).await.expect("handle failed");
+        manager
+            .handle_beacon(topic, peer, record)
+            .await
+            .expect("handle failed");
 
         // Wait for expiration
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
@@ -442,7 +448,11 @@ mod tests {
 
         // Status should be unknown after cleanup (beacon removed)
         let status = manager.get_status(peer, topic).await;
-        assert_eq!(status, PresenceStatus::Unknown, "Peer should be unknown after cleanup removes beacon");
+        assert_eq!(
+            status,
+            PresenceStatus::Unknown,
+            "Peer should be unknown after cleanup removes beacon"
+        );
     }
 
     #[tokio::test]
@@ -454,10 +464,17 @@ mod tests {
         let peer = PeerId::new([2u8; 32]);
         let record = PresenceRecord::new([0u8; 32], vec![], 900);
 
-        manager.handle_beacon(topic, peer, record).await.expect("handle failed");
+        manager
+            .handle_beacon(topic, peer, record)
+            .await
+            .expect("handle failed");
 
         let status = manager.get_status(peer, topic).await;
-        assert_eq!(status, PresenceStatus::Online, "Should be online with valid beacon");
+        assert_eq!(
+            status,
+            PresenceStatus::Online,
+            "Should be online with valid beacon"
+        );
     }
 
     #[tokio::test]
@@ -470,13 +487,20 @@ mod tests {
 
         // Beacon with 0 TTL (immediately expired)
         let record = PresenceRecord::new([0u8; 32], vec![], 0);
-        manager.handle_beacon(topic, peer, record).await.expect("handle failed");
+        manager
+            .handle_beacon(topic, peer, record)
+            .await
+            .expect("handle failed");
 
         // Wait a bit
         tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
 
         let status = manager.get_status(peer, topic).await;
-        assert_eq!(status, PresenceStatus::Offline, "Should be offline with expired beacon");
+        assert_eq!(
+            status,
+            PresenceStatus::Offline,
+            "Should be offline with expired beacon"
+        );
     }
 
     #[tokio::test]
@@ -491,8 +515,14 @@ mod tests {
 
         // Add beacons to different topics
         let record = PresenceRecord::new([0u8; 32], vec![], 900);
-        manager.handle_beacon(topic1, peer1, record.clone()).await.expect("handle1 failed");
-        manager.handle_beacon(topic2, peer2, record).await.expect("handle2 failed");
+        manager
+            .handle_beacon(topic1, peer1, record.clone())
+            .await
+            .expect("handle1 failed");
+        manager
+            .handle_beacon(topic2, peer2, record)
+            .await
+            .expect("handle2 failed");
 
         // Should only see peer1 in topic1
         let online = manager.get_online_peers(topic1).await;
@@ -530,13 +560,22 @@ mod tests {
 
         // Add beacon only to topic1
         let record = PresenceRecord::new([0u8; 32], vec![], 900);
-        manager.handle_beacon(topic1, peer, record).await.expect("handle failed");
+        manager
+            .handle_beacon(topic1, peer, record)
+            .await
+            .expect("handle failed");
 
         // Should be online in topic1
-        assert_eq!(manager.get_status(peer, topic1).await, PresenceStatus::Online);
+        assert_eq!(
+            manager.get_status(peer, topic1).await,
+            PresenceStatus::Online
+        );
 
         // Should be unknown in topic2
-        assert_eq!(manager.get_status(peer, topic2).await, PresenceStatus::Unknown);
+        assert_eq!(
+            manager.get_status(peer, topic2).await,
+            PresenceStatus::Unknown
+        );
     }
 
     #[test]
@@ -561,7 +600,10 @@ mod tests {
         let tag1 = derive_presence_tag(&secret, &peer, 1000);
         let tag2 = derive_presence_tag(&secret, &peer, 1001);
 
-        assert_ne!(tag1, tag2, "Different time slices should produce different tags");
+        assert_ne!(
+            tag1, tag2,
+            "Different time slices should produce different tags"
+        );
     }
 
     #[test]

@@ -253,7 +253,9 @@ mod optional_serde_bytes {
                     }
                 }
 
-                deserializer.deserialize_bytes(BytesVisitorWrapper).map(Some)
+                deserializer
+                    .deserialize_bytes(BytesVisitorWrapper)
+                    .map(Some)
             }
         }
 
@@ -330,16 +332,19 @@ impl ProviderSummary {
 
         // Serialize all fields except signature using CBOR
         let mut to_sign = Vec::new();
-        ciborium::into_writer(&SignableFields {
-            v: self.v,
-            target: &self.target,
-            provider: &self.provider,
-            cap: &self.cap,
-            have_root: self.have_root,
-            manifest_ver: self.manifest_ver,
-            summary: &self.summary,
-            exp: self.exp,
-        }, &mut to_sign)?;
+        ciborium::into_writer(
+            &SignableFields {
+                v: self.v,
+                target: &self.target,
+                provider: &self.provider,
+                cap: &self.cap,
+                have_root: self.have_root,
+                manifest_ver: self.manifest_ver,
+                summary: &self.summary,
+                exp: self.exp,
+            },
+            &mut to_sign,
+        )?;
 
         // Sign with ML-DSA-65
         let signer = MlDsa65::new();
@@ -358,16 +363,19 @@ impl ProviderSummary {
 
         // Reconstruct signed data using CBOR
         let mut to_verify = Vec::new();
-        ciborium::into_writer(&SignableFields {
-            v: self.v,
-            target: &self.target,
-            provider: &self.provider,
-            cap: &self.cap,
-            have_root: self.have_root,
-            manifest_ver: self.manifest_ver,
-            summary: &self.summary,
-            exp: self.exp,
-        }, &mut to_verify)?;
+        ciborium::into_writer(
+            &SignableFields {
+                v: self.v,
+                target: &self.target,
+                provider: &self.provider,
+                cap: &self.cap,
+                have_root: self.have_root,
+                manifest_ver: self.manifest_ver,
+                summary: &self.summary,
+                exp: self.exp,
+            },
+            &mut to_verify,
+        )?;
 
         // Verify signature
         let verifier = MlDsa65::new();
@@ -443,7 +451,10 @@ mod tests {
 
         // Different targets should (very likely) map to different shards
         // This is probabilistic, but with 65k shards collision is unlikely
-        assert_ne!(shard1, shard2, "Different targets should map to different shards");
+        assert_ne!(
+            shard1, shard2,
+            "Different targets should map to different shards"
+        );
     }
 
     #[test]
@@ -461,12 +472,7 @@ mod tests {
         let target = [1u8; 32];
         let provider = PeerId::new([2u8; 32]);
 
-        let summary = ProviderSummary::new(
-            target,
-            provider,
-            vec![Capability::Site],
-            3_600_000,
-        );
+        let summary = ProviderSummary::new(target, provider, vec![Capability::Site], 3_600_000);
 
         assert_eq!(summary.v, 1);
         assert_eq!(summary.target, target);
@@ -519,12 +525,7 @@ mod tests {
         let target = [5u8; 32];
         let provider = PeerId::new([6u8; 32]);
 
-        let summary = ProviderSummary::new(
-            target,
-            provider,
-            vec![Capability::Site],
-            3_600_000,
-        );
+        let summary = ProviderSummary::new(target, provider, vec![Capability::Site], 3_600_000);
 
         let shard = summary.shard();
         assert_eq!(shard, calculate_shard(&target));
@@ -535,13 +536,8 @@ mod tests {
         let target = [7u8; 32];
         let provider = PeerId::new([8u8; 32]);
 
-        let summary = ProviderSummary::new(
-            target,
-            provider,
-            vec![Capability::Site],
-            60_000,
-        )
-        .with_root(true);
+        let summary =
+            ProviderSummary::new(target, provider, vec![Capability::Site], 60_000).with_root(true);
 
         let cbor = summary.to_cbor().expect("CBOR serialization");
         let decoded = ProviderSummary::from_cbor(&cbor).expect("CBOR deserialization");
@@ -559,12 +555,8 @@ mod tests {
         let target = [9u8; 32];
         let provider = PeerId::new([10u8; 32]);
 
-        let mut summary = ProviderSummary::new(
-            target,
-            provider,
-            vec![Capability::Identity],
-            60_000,
-        );
+        let mut summary =
+            ProviderSummary::new(target, provider, vec![Capability::Identity], 60_000);
 
         // Generate keypair
         let signer = MlDsa65::new();

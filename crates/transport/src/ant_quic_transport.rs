@@ -21,7 +21,9 @@ use crate::{GossipTransport, StreamType};
 // Import ant-quic types
 use ant_quic::{
     auth::AuthConfig,
-    crypto::raw_public_keys::key_utils::{derive_peer_id_from_public_key, generate_ed25519_keypair},
+    crypto::raw_public_keys::key_utils::{
+        derive_peer_id_from_public_key, generate_ed25519_keypair,
+    },
     nat_traversal_api::{EndpointRole, PeerId as AntPeerId},
     quic_node::{QuicNodeConfig, QuicP2PNode},
 };
@@ -320,8 +322,7 @@ mod tests {
         sleep(Duration::from_millis(100)).await;
 
         // Create client node that connects via bootstrap
-        let client_addr =
-            SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), base_port + 1);
+        let client_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), base_port + 1);
         let client = AntQuicTransport::new(client_addr, EndpointRole::Client, vec![bootstrap_addr])
             .await
             .expect("Failed to create client");
@@ -349,11 +350,7 @@ mod tests {
             .expect("Failed to send message");
 
         // Receive message on bootstrap with timeout
-        let result = timeout(
-            Duration::from_secs(5),
-            bootstrap.receive_message(),
-        )
-        .await;
+        let result = timeout(Duration::from_secs(5), bootstrap.receive_message()).await;
 
         match result {
             Ok(Ok((peer_id, stream_type, data))) => {

@@ -114,7 +114,10 @@ mod tests {
         let ctx1 = GroupContext::from_entity(entity_id).expect("should create");
         let ctx2 = GroupContext::from_entity(entity_id).expect("should create");
 
-        assert_eq!(ctx1.topic_id, ctx2.topic_id, "Same entity should produce same topic");
+        assert_eq!(
+            ctx1.topic_id, ctx2.topic_id,
+            "Same entity should produce same topic"
+        );
     }
 
     #[test]
@@ -149,7 +152,10 @@ mod tests {
         let tag1 = GroupContext::derive_presence_secret(&exporter, &user_id, 1000);
         let tag2 = GroupContext::derive_presence_secret(&exporter, &user_id, 1001);
 
-        assert_ne!(tag1, tag2, "Different time slices should produce different tags");
+        assert_ne!(
+            tag1, tag2,
+            "Different time slices should produce different tags"
+        );
     }
 
     #[test]
@@ -175,6 +181,9 @@ mod tests {
         let tag1 = GroupContext::derive_presence_secret(&exporter1, &user_id, time_slice);
         let tag2 = GroupContext::derive_presence_secret(&exporter2, &user_id, time_slice);
 
-        assert_ne!(tag1, tag2, "Different exporters should produce different tags");
+        assert_ne!(
+            tag1, tag2,
+            "Different exporters should produce different tags"
+        );
     }
 }

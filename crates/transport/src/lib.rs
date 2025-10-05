@@ -243,7 +243,10 @@ mod tests {
 
         let received = receivers.membership_rx.recv().await;
         assert!(received.is_some());
-        assert_eq!(received.as_ref().map(|b| b.as_ref()), Some(test_data.as_ref()));
+        assert_eq!(
+            received.as_ref().map(|b| b.as_ref()),
+            Some(test_data.as_ref())
+        );
     }
 
     #[tokio::test]

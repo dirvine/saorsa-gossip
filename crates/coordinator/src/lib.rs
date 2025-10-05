@@ -53,7 +53,10 @@ mod topic;
 
 pub use bootstrap::{Bootstrap, BootstrapAction, BootstrapResult, TraversalMethod};
 pub use cache::AdvertCache;
-pub use foaf::{FindCoordinatorQuery, FindCoordinatorResponse, DEFAULT_FIND_COORDINATOR_FANOUT, MAX_FIND_COORDINATOR_TTL};
+pub use foaf::{
+    FindCoordinatorQuery, FindCoordinatorResponse, DEFAULT_FIND_COORDINATOR_FANOUT,
+    MAX_FIND_COORDINATOR_TTL,
+};
 pub use handler::CoordinatorHandler;
 pub use peer_cache::{PeerCache, PeerCacheEntry, PeerRoles};
 pub use publisher::{CoordinatorPublisher, PeriodicPublisher};
@@ -251,16 +254,19 @@ impl CoordinatorAdvert {
 
         // Serialize all fields except signature using CBOR for determinism
         let mut to_sign = Vec::new();
-        ciborium::into_writer(&SignableFields {
-            v: self.v,
-            peer: &self.peer,
-            roles: &self.roles,
-            addr_hints: &self.addr_hints,
-            nat_class: &self.nat_class,
-            not_before: self.not_before,
-            not_after: self.not_after,
-            score: self.score,
-        }, &mut to_sign)?;
+        ciborium::into_writer(
+            &SignableFields {
+                v: self.v,
+                peer: &self.peer,
+                roles: &self.roles,
+                addr_hints: &self.addr_hints,
+                nat_class: &self.nat_class,
+                not_before: self.not_before,
+                not_after: self.not_after,
+                score: self.score,
+            },
+            &mut to_sign,
+        )?;
 
         // Sign with ML-DSA-65
         let signer = MlDsa65::new();
@@ -279,16 +285,19 @@ impl CoordinatorAdvert {
 
         // Reconstruct signed data using CBOR
         let mut to_verify = Vec::new();
-        ciborium::into_writer(&SignableFields {
-            v: self.v,
-            peer: &self.peer,
-            roles: &self.roles,
-            addr_hints: &self.addr_hints,
-            nat_class: &self.nat_class,
-            not_before: self.not_before,
-            not_after: self.not_after,
-            score: self.score,
-        }, &mut to_verify)?;
+        ciborium::into_writer(
+            &SignableFields {
+                v: self.v,
+                peer: &self.peer,
+                roles: &self.roles,
+                addr_hints: &self.addr_hints,
+                nat_class: &self.nat_class,
+                not_before: self.not_before,
+                not_after: self.not_after,
+                score: self.score,
+            },
+            &mut to_verify,
+        )?;
 
         // Verify signature
         let verifier = MlDsa65::new();
@@ -382,8 +391,7 @@ mod tests {
         let advert = CoordinatorAdvert::new(peer, roles, vec![], NatClass::Unknown, 1000);
 
         let bytes = advert.to_cbor().expect("serialization should succeed");
-        let decoded =
-            CoordinatorAdvert::from_cbor(&bytes).expect("deserialization should succeed");
+        let decoded = CoordinatorAdvert::from_cbor(&bytes).expect("deserialization should succeed");
 
         assert_eq!(advert.peer, decoded.peer);
         assert_eq!(advert.v, decoded.v);
@@ -586,7 +594,10 @@ mod tests {
 
         // Signature should still verify
         let valid = decoded.verify(&pk).expect("verification");
-        assert!(valid, "Signature should still be valid after CBOR round-trip");
+        assert!(
+            valid,
+            "Signature should still be valid after CBOR round-trip"
+        );
     }
 
     /// Test to_bytes and from_bytes use CBOR

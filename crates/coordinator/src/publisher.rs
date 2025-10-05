@@ -164,12 +164,8 @@ mod tests {
     #[tokio::test]
     async fn test_create_advert_without_key_fails() {
         let peer_id = PeerId::new([1u8; 32]);
-        let publisher = CoordinatorPublisher::new(
-            peer_id,
-            CoordinatorRoles::default(),
-            vec![],
-            NatClass::Eim,
-        );
+        let publisher =
+            CoordinatorPublisher::new(peer_id, CoordinatorRoles::default(), vec![], NatClass::Eim);
 
         let result = publisher.create_advert().await;
         assert!(result.is_err(), "Should fail without signing key");
@@ -178,19 +174,18 @@ mod tests {
     #[tokio::test]
     async fn test_create_advert_with_key_succeeds() {
         let peer_id = PeerId::new([1u8; 32]);
-        let publisher = CoordinatorPublisher::new(
-            peer_id,
-            CoordinatorRoles::default(),
-            vec![],
-            NatClass::Eim,
-        );
+        let publisher =
+            CoordinatorPublisher::new(peer_id, CoordinatorRoles::default(), vec![], NatClass::Eim);
 
         // Generate and set signing key
         let signer = MlDsa65::new();
         let (_, sk) = signer.generate_keypair().expect("keypair");
         publisher.set_signing_key(sk).await;
 
-        let advert = publisher.create_advert().await.expect("should create advert");
+        let advert = publisher
+            .create_advert()
+            .await
+            .expect("should create advert");
 
         assert_eq!(advert.peer, peer_id);
         assert!(!advert.sig.is_empty(), "Should be signed");
@@ -226,12 +221,8 @@ mod tests {
     #[tokio::test]
     async fn test_publisher_topic() {
         let peer_id = PeerId::new([1u8; 32]);
-        let publisher = CoordinatorPublisher::new(
-            peer_id,
-            CoordinatorRoles::default(),
-            vec![],
-            NatClass::Eim,
-        );
+        let publisher =
+            CoordinatorPublisher::new(peer_id, CoordinatorRoles::default(), vec![], NatClass::Eim);
 
         let topic = publisher.topic();
         assert_eq!(topic, coordinator_topic());
@@ -240,13 +231,9 @@ mod tests {
     #[tokio::test]
     async fn test_with_validity_duration() {
         let peer_id = PeerId::new([1u8; 32]);
-        let publisher = CoordinatorPublisher::new(
-            peer_id,
-            CoordinatorRoles::default(),
-            vec![],
-            NatClass::Eim,
-        )
-        .with_validity_duration(5000); // 5 seconds
+        let publisher =
+            CoordinatorPublisher::new(peer_id, CoordinatorRoles::default(), vec![], NatClass::Eim)
+                .with_validity_duration(5000); // 5 seconds
 
         // Set signing key
         let signer = MlDsa65::new();
@@ -262,12 +249,8 @@ mod tests {
     #[tokio::test]
     async fn test_periodic_publisher_sends_adverts() {
         let peer_id = PeerId::new([1u8; 32]);
-        let publisher = CoordinatorPublisher::new(
-            peer_id,
-            CoordinatorRoles::default(),
-            vec![],
-            NatClass::Eim,
-        );
+        let publisher =
+            CoordinatorPublisher::new(peer_id, CoordinatorRoles::default(), vec![], NatClass::Eim);
 
         // Set signing key
         let signer = MlDsa65::new();
@@ -299,12 +282,8 @@ mod tests {
     #[tokio::test]
     async fn test_periodic_publisher_stops_when_receiver_dropped() {
         let peer_id = PeerId::new([1u8; 32]);
-        let publisher = CoordinatorPublisher::new(
-            peer_id,
-            CoordinatorRoles::default(),
-            vec![],
-            NatClass::Eim,
-        );
+        let publisher =
+            CoordinatorPublisher::new(peer_id, CoordinatorRoles::default(), vec![], NatClass::Eim);
 
         // Set signing key
         let signer = MlDsa65::new();

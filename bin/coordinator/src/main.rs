@@ -61,7 +61,10 @@ async fn main() -> Result<()> {
 
     // 1. Load or create identity
     let identity = load_or_create_identity(&args.identity_path).await?;
-    tracing::info!("Loaded identity: {}", hex::encode(identity.peer_id.as_bytes()));
+    tracing::info!(
+        "Loaded identity: {}",
+        hex::encode(identity.peer_id.as_bytes())
+    );
 
     // 2. Start coordinator services based on roles
     if coordinator_roles.coordinator {
@@ -165,7 +168,10 @@ async fn start_coordinator_service(
         );
 
         while let Some(advert_bytes) = advert_rx.recv().await {
-            tracing::debug!("Published coordinator advert ({} bytes)", advert_bytes.len());
+            tracing::debug!(
+                "Published coordinator advert ({} bytes)",
+                advert_bytes.len()
+            );
             // In a full implementation, this would be sent via pubsub transport
             // For now, we just log that it was published
             // TODO: Wire to actual transport pubsub.publish(coordinator_topic(), advert_bytes)

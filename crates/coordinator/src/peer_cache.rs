@@ -141,7 +141,10 @@ impl PeerCache {
     }
 
     /// Get all entries with a specific role
-    pub fn get_by_role(&self, role_filter: impl Fn(&PeerCacheEntry) -> bool) -> Vec<PeerCacheEntry> {
+    pub fn get_by_role(
+        &self,
+        role_filter: impl Fn(&PeerCacheEntry) -> bool,
+    ) -> Vec<PeerCacheEntry> {
         let entries = self.entries.lock().expect("lock poisoned");
         entries
             .values()
@@ -308,12 +311,7 @@ mod tests {
             relay: false,
         };
 
-        let entry = PeerCacheEntry::new(
-            peer_id,
-            vec![addr],
-            NatClass::Eim,
-            roles,
-        );
+        let entry = PeerCacheEntry::new(peer_id, vec![addr], NatClass::Eim, roles);
 
         assert_eq!(entry.peer_id, peer_id);
         assert_eq!(entry.public_addrs.len(), 1);
@@ -559,7 +557,9 @@ mod tests {
         // Add some entries
         for i in 0..3 {
             let peer_id = PeerId::new([i; 32]);
-            let addr = format!("127.0.0.{}:8080", i + 1).parse().expect("valid addr");
+            let addr = format!("127.0.0.{}:8080", i + 1)
+                .parse()
+                .expect("valid addr");
             cache.insert(PeerCacheEntry::new(
                 peer_id,
                 vec![addr],
@@ -695,15 +695,16 @@ mod tests {
     /// Test loading corrupted file returns error
     #[test]
     fn test_load_corrupted_file() {
-        use tempfile::tempdir;
         use std::io::Write;
+        use tempfile::tempdir;
 
         let temp_dir = tempdir().expect("create temp dir");
         let corrupt_path = temp_dir.path().join("corrupt.cbor");
 
         // Write garbage data
         let mut file = std::fs::File::create(&corrupt_path).expect("create file");
-        file.write_all(&[0xFF, 0xFF, 0xFF, 0xFF]).expect("write garbage");
+        file.write_all(&[0xFF, 0xFF, 0xFF, 0xFF])
+            .expect("write garbage");
         drop(file);
 
         let result = PeerCache::load(&corrupt_path);
@@ -713,9 +714,9 @@ mod tests {
     /// Test concurrent access safety (file locking)
     #[test]
     fn test_concurrent_save_safety() {
-        use tempfile::tempdir;
         use std::sync::Arc;
         use std::thread;
+        use tempfile::tempdir;
 
         let temp_dir = tempdir().expect("create temp dir");
         let cache_path = Arc::new(temp_dir.path().join("concurrent.cbor"));

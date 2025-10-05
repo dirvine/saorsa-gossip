@@ -64,7 +64,10 @@ impl AdvertCache {
     }
 
     /// Get all adverts with a specific role enabled
-    pub fn get_by_role(&self, role_filter: impl Fn(&CoordinatorAdvert) -> bool) -> Vec<CoordinatorAdvert> {
+    pub fn get_by_role(
+        &self,
+        role_filter: impl Fn(&CoordinatorAdvert) -> bool,
+    ) -> Vec<CoordinatorAdvert> {
         let cache = self.cache.lock().expect("lock poisoned");
         cache
             .iter()

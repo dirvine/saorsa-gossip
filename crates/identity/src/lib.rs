@@ -159,13 +159,14 @@ impl Identity {
         let file_path = Self::keystore_file_path(four_words, keystore_path);
 
         // Read file
-        let data = tokio::fs::read(&file_path)
-            .await
-            .context(format!("Failed to read keystore file: {}", file_path.display()))?;
+        let data = tokio::fs::read(&file_path).await.context(format!(
+            "Failed to read keystore file: {}",
+            file_path.display()
+        ))?;
 
         // Deserialize (in production, this would be encrypted)
-        let identity: Identity = bincode::deserialize(&data)
-            .context("Failed to deserialize identity")?;
+        let identity: Identity =
+            bincode::deserialize(&data).context("Failed to deserialize identity")?;
 
         Ok(identity)
     }
@@ -186,13 +187,13 @@ impl Identity {
         }
 
         // Serialize (in production, this would be encrypted)
-        let data = bincode::serialize(&self)
-            .context("Failed to serialize identity")?;
+        let data = bincode::serialize(&self).context("Failed to serialize identity")?;
 
         // Write file
-        tokio::fs::write(&file_path, data)
-            .await
-            .context(format!("Failed to write keystore file: {}", file_path.display()))?;
+        tokio::fs::write(&file_path, data).await.context(format!(
+            "Failed to write keystore file: {}",
+            file_path.display()
+        ))?;
 
         Ok(())
     }
@@ -309,7 +310,8 @@ mod tests {
         let identity = Identity::new("Bob".to_string()).expect("create");
 
         // Save to keystore
-        identity.save_to_keystore(four_words, keystore_path)
+        identity
+            .save_to_keystore(four_words, keystore_path)
             .await
             .expect("should save");
 

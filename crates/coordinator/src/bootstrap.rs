@@ -104,7 +104,11 @@ impl Bootstrap {
         }
 
         // Try each traversal method in preference order
-        for method in [TraversalMethod::Direct, TraversalMethod::Reflexive, TraversalMethod::Relay] {
+        for method in [
+            TraversalMethod::Direct,
+            TraversalMethod::Reflexive,
+            TraversalMethod::Relay,
+        ] {
             for entry in coordinators {
                 if let Some(addr) = self.get_addr_for_method(entry, method) {
                     return Some(BootstrapResult {
@@ -125,7 +129,11 @@ impl Bootstrap {
     /// 1. Direct: Use public_addrs (best performance, lowest cost)
     /// 2. Reflexive: Use reflexive_addrs from hole punching (moderate cost)
     /// 3. Relay: Lookup relay peer's public address (last resort, highest cost)
-    fn get_addr_for_method(&self, entry: &PeerCacheEntry, method: TraversalMethod) -> Option<SocketAddr> {
+    fn get_addr_for_method(
+        &self,
+        entry: &PeerCacheEntry,
+        method: TraversalMethod,
+    ) -> Option<SocketAddr> {
         match method {
             TraversalMethod::Direct => {
                 // Direct connection via public address
@@ -155,7 +163,10 @@ impl Bootstrap {
     ///
     /// Processes coordinator adverts from response, updates cache, and returns connect action.
     /// Per SPEC2 §7.3, responses contain coordinator adverts that should be added to cache.
-    pub fn handle_find_response(&self, response: crate::FindCoordinatorResponse) -> Option<BootstrapAction> {
+    pub fn handle_find_response(
+        &self,
+        response: crate::FindCoordinatorResponse,
+    ) -> Option<BootstrapAction> {
         // Remove from pending queries
         {
             let mut pending = self.pending_queries.lock().expect("lock poisoned");
@@ -169,15 +180,25 @@ impl Bootstrap {
         }
 
         // Try to find coordinator from newly updated cache
-        let coordinators = self.handler.cache().get_by_role(|advert| advert.roles.coordinator);
+        let coordinators = self
+            .handler
+            .cache()
+            .get_by_role(|advert| advert.roles.coordinator);
 
         self.select_best_from_adverts(&coordinators)
             .map(BootstrapAction::Connect)
     }
 
     /// Select best coordinator from coordinator adverts
-    fn select_best_from_adverts(&self, adverts: &[crate::CoordinatorAdvert]) -> Option<BootstrapResult> {
-        for method in [TraversalMethod::Direct, TraversalMethod::Reflexive, TraversalMethod::Relay] {
+    fn select_best_from_adverts(
+        &self,
+        adverts: &[crate::CoordinatorAdvert],
+    ) -> Option<BootstrapResult> {
+        for method in [
+            TraversalMethod::Direct,
+            TraversalMethod::Reflexive,
+            TraversalMethod::Relay,
+        ] {
             for advert in adverts {
                 if let Some(addr_hint) = advert.addr_hints.first() {
                     return Some(BootstrapResult {
@@ -336,7 +357,10 @@ mod tests {
         // Should select most recent (coord2)
         match action {
             BootstrapAction::Connect(result) => {
-                assert_eq!(result.peer_id, coord2, "Should select most recent coordinator");
+                assert_eq!(
+                    result.peer_id, coord2,
+                    "Should select most recent coordinator"
+                );
                 assert_eq!(result.addr, addr2);
             }
             _ => panic!("Expected Connect action"),
@@ -370,7 +394,11 @@ mod tests {
 
         match action {
             BootstrapAction::Connect(result) => {
-                assert_eq!(result.method, TraversalMethod::Direct, "Should prefer direct connection");
+                assert_eq!(
+                    result.method,
+                    TraversalMethod::Direct,
+                    "Should prefer direct connection"
+                );
             }
             _ => panic!("Expected Connect action"),
         }
@@ -408,7 +436,10 @@ mod tests {
             BootstrapAction::SendQuery(query) => {
                 // Query should be tracked
                 let pending = bootstrap.pending_queries.lock().expect("lock");
-                assert!(pending.contains_key(&query.query_id), "Query should be tracked");
+                assert!(
+                    pending.contains_key(&query.query_id),
+                    "Query should be tracked"
+                );
             }
             _ => panic!("Expected SendQuery action"),
         }
@@ -417,7 +448,9 @@ mod tests {
     /// Test handling FOAF query response
     #[test]
     fn test_handle_foaf_response() {
-        use crate::{CoordinatorAdvert, CoordinatorRoles, NatClass, AddrHint, FindCoordinatorResponse};
+        use crate::{
+            AddrHint, CoordinatorAdvert, CoordinatorRoles, FindCoordinatorResponse, NatClass,
+        };
         use saorsa_pqc::{MlDsa65, MlDsaOperations};
 
         let peer_id = PeerId::new([11u8; 32]);
@@ -457,7 +490,9 @@ mod tests {
         let response = FindCoordinatorResponse::new(query_id, peer_id, vec![advert]);
 
         // Handle the response
-        let result_action = bootstrap.handle_find_response(response).expect("should return action");
+        let result_action = bootstrap
+            .handle_find_response(response)
+            .expect("should return action");
 
         // Should return Connect action with coordinator
         match result_action {
@@ -470,7 +505,10 @@ mod tests {
 
         // Query should be removed from pending
         let pending = bootstrap.pending_queries.lock().expect("lock");
-        assert!(!pending.contains_key(&query_id), "Query should be removed after response");
+        assert!(
+            !pending.contains_key(&query_id),
+            "Query should be removed after response"
+        );
     }
 
     /// Test query timeout pruning
@@ -596,7 +634,10 @@ mod tests {
         match action {
             BootstrapAction::Connect(result) => {
                 assert_eq!(result.method, TraversalMethod::Reflexive);
-                assert_eq!(result.addr, reflexive_addr, "Reflexive should use reflexive address");
+                assert_eq!(
+                    result.addr, reflexive_addr,
+                    "Reflexive should use reflexive address"
+                );
             }
             _ => panic!("Expected Connect action"),
         }
@@ -648,7 +689,10 @@ mod tests {
         match action {
             BootstrapAction::Connect(result) => {
                 assert_eq!(result.method, TraversalMethod::Relay);
-                assert_eq!(result.addr, relay_addr, "Relay should use relay peer's public address");
+                assert_eq!(
+                    result.addr, relay_addr,
+                    "Relay should use relay peer's public address"
+                );
             }
             _ => panic!("Expected Connect action"),
         }
@@ -702,7 +746,11 @@ mod tests {
 
         match action {
             BootstrapAction::Connect(result) => {
-                assert_eq!(result.method, TraversalMethod::Direct, "Should prefer Direct");
+                assert_eq!(
+                    result.method,
+                    TraversalMethod::Direct,
+                    "Should prefer Direct"
+                );
                 assert_eq!(result.addr, public_addr, "Should use public address");
             }
             _ => panic!("Expected Connect action"),
@@ -779,7 +827,9 @@ mod tests {
     /// Test response with multiple coordinators selects best
     #[test]
     fn test_response_with_multiple_coordinators() {
-        use crate::{CoordinatorAdvert, CoordinatorRoles, NatClass, AddrHint, FindCoordinatorResponse};
+        use crate::{
+            AddrHint, CoordinatorAdvert, CoordinatorRoles, FindCoordinatorResponse, NatClass,
+        };
         use saorsa_pqc::{MlDsa65, MlDsaOperations};
 
         let peer_id = PeerId::new([15u8; 32]);
@@ -801,7 +851,9 @@ mod tests {
         let mut adverts = vec![];
         for i in 0..3 {
             let coord_peer = PeerId::new([16 + i; 32]);
-            let addr = format!("10.0.0.{}:8080", i + 1).parse().expect("valid addr");
+            let addr = format!("10.0.0.{}:8080", i + 1)
+                .parse()
+                .expect("valid addr");
 
             let mut advert = CoordinatorAdvert::new(
                 coord_peer,
@@ -822,7 +874,9 @@ mod tests {
         let response = FindCoordinatorResponse::new(query_id, peer_id, adverts);
 
         // Should select the first coordinator (simplest traversal logic)
-        let result_action = bootstrap.handle_find_response(response).expect("should return action");
+        let result_action = bootstrap
+            .handle_find_response(response)
+            .expect("should return action");
 
         match result_action {
             BootstrapAction::Connect(result) => {

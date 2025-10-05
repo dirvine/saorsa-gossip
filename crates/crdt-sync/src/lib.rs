@@ -59,7 +59,10 @@ pub struct OrSet<T: Hash + Eq + Clone> {
 }
 
 /// Type alias for changelog entries to reduce complexity
-type ChangelogEntry<T> = (HashMap<T, HashSet<UniqueTag>>, HashMap<T, HashSet<UniqueTag>>);
+type ChangelogEntry<T> = (
+    HashMap<T, HashSet<UniqueTag>>,
+    HashMap<T, HashSet<UniqueTag>>,
+);
 
 impl<T: Hash + Eq + Clone> OrSet<T> {
     /// Create a new OR-Set
@@ -93,11 +96,11 @@ impl<T: Hash + Eq + Clone> OrSet<T> {
 
         // Record in changelog
         self.version += 1;
-        let changelog_entry = self.changelog.entry(self.version).or_insert((HashMap::new(), HashMap::new()));
-        changelog_entry.0
-            .entry(element)
-            .or_default()
-            .insert(tag);
+        let changelog_entry = self
+            .changelog
+            .entry(self.version)
+            .or_insert((HashMap::new(), HashMap::new()));
+        changelog_entry.0.entry(element).or_default().insert(tag);
 
         Ok(())
     }
@@ -121,8 +124,12 @@ impl<T: Hash + Eq + Clone> OrSet<T> {
 
             // Record in changelog
             self.version += 1;
-            let changelog_entry = self.changelog.entry(self.version).or_insert((HashMap::new(), HashMap::new()));
-            changelog_entry.1
+            let changelog_entry = self
+                .changelog
+                .entry(self.version)
+                .or_insert((HashMap::new(), HashMap::new()));
+            changelog_entry
+                .1
                 .entry(element.clone())
                 .or_default()
                 .extend(tags);
@@ -452,7 +459,11 @@ where
     /// Callback is called with (peer_id, delta) for each sync.
     pub async fn start<F>(&self, sync_callback: F) -> Result<()>
     where
-        F: Fn(PeerId, T::Delta) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send>>
+        F: Fn(
+                PeerId,
+                T::Delta,
+            )
+                -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send>>
             + Send
             + Sync
             + 'static,
@@ -471,7 +482,8 @@ where
         let sync_callback = std::sync::Arc::new(sync_callback);
 
         let task = tokio::spawn(async move {
-            let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(interval_secs));
+            let mut interval =
+                tokio::time::interval(tokio::time::Duration::from_secs(interval_secs));
 
             loop {
                 tokio::select! {
@@ -624,7 +636,7 @@ mod tests {
         // Add, remove, add again
         set.add("alice".to_string(), (p1, 1)).ok();
         set.remove(&"alice".to_string()).ok();
-        set.add("alice".to_string(), (p1, 2)).ok();  // Different sequence number
+        set.add("alice".to_string(), (p1, 2)).ok(); // Different sequence number
 
         assert!(set.contains(&"alice".to_string()));
     }
@@ -927,17 +939,20 @@ mod tests {
         let sync_count_clone = sync_count.clone();
 
         // Start syncing
-        manager.start(move |peer_id, delta: <OrSet<String> as DeltaCrdt>::Delta| {
-            let count = sync_count_clone.clone();
-            Box::pin(async move {
-                count.fetch_add(1, Ordering::SeqCst);
-                // Verify we got the right peer
-                assert_eq!(peer_id, peer(1));
-                // Verify delta has our element
-                assert!(delta.added.contains_key("test"));
-                Ok(())
+        manager
+            .start(move |peer_id, delta: <OrSet<String> as DeltaCrdt>::Delta| {
+                let count = sync_count_clone.clone();
+                Box::pin(async move {
+                    count.fetch_add(1, Ordering::SeqCst);
+                    // Verify we got the right peer
+                    assert_eq!(peer_id, peer(1));
+                    // Verify delta has our element
+                    assert!(delta.added.contains_key("test"));
+                    Ok(())
+                })
             })
-        }).await.ok();
+            .await
+            .ok();
 
         // Wait for at least 2 sync intervals
         tokio::time::sleep(tokio::time::Duration::from_millis(2100)).await;
@@ -955,9 +970,12 @@ mod tests {
         let manager = AntiEntropyManager::new(crdt, 1);
 
         // Start syncing
-        manager.start(|_peer_id, _delta: <OrSet<String> as DeltaCrdt>::Delta| {
-            Box::pin(async { Ok(()) })
-        }).await.ok();
+        manager
+            .start(|_peer_id, _delta: <OrSet<String> as DeltaCrdt>::Delta| {
+                Box::pin(async { Ok(()) })
+            })
+            .await
+            .ok();
 
         // Stop should complete within timeout
         let result = manager.stop().await;
@@ -993,13 +1011,18 @@ mod tests {
         let synced_peers = std::sync::Arc::new(tokio::sync::Mutex::new(HashSet::new()));
         let synced_peers_clone = synced_peers.clone();
 
-        manager.start(move |peer_id, _delta: <OrSet<String> as DeltaCrdt>::Delta| {
-            let peers = synced_peers_clone.clone();
-            Box::pin(async move {
-                peers.lock().await.insert(peer_id);
-                Ok(())
-            })
-        }).await.ok();
+        manager
+            .start(
+                move |peer_id, _delta: <OrSet<String> as DeltaCrdt>::Delta| {
+                    let peers = synced_peers_clone.clone();
+                    Box::pin(async move {
+                        peers.lock().await.insert(peer_id);
+                        Ok(())
+                    })
+                },
+            )
+            .await
+            .ok();
 
         // Wait for sync
         tokio::time::sleep(tokio::time::Duration::from_millis(1100)).await;

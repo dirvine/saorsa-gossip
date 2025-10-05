@@ -217,7 +217,9 @@ impl<T: GossipTransport + 'static> SwimDetector<T> {
                     trace!(peer_id = %peer, "SWIM: Probing peer");
                     let ping_msg = SwimMessage::Ping;
                     if let Ok(bytes) = bincode::serialize(&ping_msg) {
-                        let _ = transport.send_to_peer(peer, StreamType::Membership, bytes.into()).await;
+                        let _ = transport
+                            .send_to_peer(peer, StreamType::Membership, bytes.into())
+                            .await;
                     }
                     // Note: Response handling would mark peer alive/suspect
                     // For now, we'll rely on manual state updates
@@ -289,7 +291,11 @@ impl<T: GossipTransport + 'static> HyParViewMembership<T> {
         let membership = Self {
             active: Arc::new(RwLock::new(HashSet::new())),
             passive: Arc::new(RwLock::new(HashSet::new())),
-            swim: SwimDetector::new(SWIM_PROBE_INTERVAL_SECS, SWIM_SUSPECT_TIMEOUT_SECS, transport.clone()),
+            swim: SwimDetector::new(
+                SWIM_PROBE_INTERVAL_SECS,
+                SWIM_SUSPECT_TIMEOUT_SECS,
+                transport.clone(),
+            ),
             active_degree,
             passive_degree,
             transport,
@@ -317,7 +323,10 @@ impl<T: GossipTransport + 'static> HyParViewMembership<T> {
         }
 
         // Select random active peer for shuffle
-        let target = *active.iter().next().ok_or_else(|| anyhow!("No active peers"))?;
+        let target = *active
+            .iter()
+            .next()
+            .ok_or_else(|| anyhow!("No active peers"))?;
 
         // Select random subset of passive view to exchange
         let exchange_size = (self.passive_degree / 4).max(1);
@@ -437,7 +446,8 @@ impl<T: GossipTransport + 'static> HyParViewMembership<T> {
                 // Promote from passive if active is low
                 if active_count < DEFAULT_ACTIVE_DEGREE && !passive_guard.is_empty() {
                     let to_promote = DEFAULT_ACTIVE_DEGREE - active_count;
-                    let peers: Vec<PeerId> = passive_guard.iter().take(to_promote).copied().collect();
+                    let peers: Vec<PeerId> =
+                        passive_guard.iter().take(to_promote).copied().collect();
 
                     for peer in peers {
                         passive_guard.remove(&peer);
@@ -463,7 +473,8 @@ impl<T: GossipTransport + 'static> HyParViewMembership<T> {
                 // Trim passive if over capacity
                 if passive_count > MAX_PASSIVE_DEGREE {
                     let to_remove = passive_count - MAX_PASSIVE_DEGREE;
-                    let peers: Vec<PeerId> = passive_guard.iter().take(to_remove).copied().collect();
+                    let peers: Vec<PeerId> =
+                        passive_guard.iter().take(to_remove).copied().collect();
 
                     for peer in peers {
                         passive_guard.remove(&peer);
@@ -570,7 +581,11 @@ mod tests {
     }
 
     fn test_membership() -> HyParViewMembership<QuicTransport> {
-        HyParViewMembership::new(DEFAULT_ACTIVE_DEGREE, DEFAULT_PASSIVE_DEGREE, test_transport())
+        HyParViewMembership::new(
+            DEFAULT_ACTIVE_DEGREE,
+            DEFAULT_PASSIVE_DEGREE,
+            test_transport(),
+        )
     }
 
     #[tokio::test]
