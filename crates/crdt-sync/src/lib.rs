@@ -55,8 +55,11 @@ pub struct OrSet<T: Hash + Eq + Clone> {
     /// Current version for delta generation
     version: u64,
     /// Version -> (additions, removals) for delta tracking
-    changelog: HashMap<u64, (HashMap<T, HashSet<UniqueTag>>, HashMap<T, HashSet<UniqueTag>>)>,
+    changelog: HashMap<u64, ChangelogEntry<T>>,
 }
+
+/// Type alias for changelog entries to reduce complexity
+type ChangelogEntry<T> = (HashMap<T, HashSet<UniqueTag>>, HashMap<T, HashSet<UniqueTag>>);
 
 impl<T: Hash + Eq + Clone> OrSet<T> {
     /// Create a new OR-Set
@@ -77,7 +80,7 @@ impl<T: Hash + Eq + Clone> OrSet<T> {
         // Add to elements
         self.elements
             .entry(element.clone())
-            .or_insert_with(HashSet::new)
+            .or_default()
             .insert(tag);
 
         // Remove from tombstones if it was previously removed
@@ -93,7 +96,7 @@ impl<T: Hash + Eq + Clone> OrSet<T> {
         let changelog_entry = self.changelog.entry(self.version).or_insert((HashMap::new(), HashMap::new()));
         changelog_entry.0
             .entry(element)
-            .or_insert_with(HashSet::new)
+            .or_default()
             .insert(tag);
 
         Ok(())
@@ -109,7 +112,7 @@ impl<T: Hash + Eq + Clone> OrSet<T> {
             for tag in &tags {
                 self.tombstones
                     .entry(element.clone())
-                    .or_insert_with(HashSet::new)
+                    .or_default()
                     .insert(*tag);
             }
 
@@ -121,7 +124,7 @@ impl<T: Hash + Eq + Clone> OrSet<T> {
             let changelog_entry = self.changelog.entry(self.version).or_insert((HashMap::new(), HashMap::new()));
             changelog_entry.1
                 .entry(element.clone())
-                .or_insert_with(HashSet::new)
+                .or_default()
                 .extend(tags);
         }
 
@@ -155,7 +158,7 @@ impl<T: Hash + Eq + Clone> OrSet<T> {
     pub fn merge_state(&mut self, other: &OrSet<T>) -> Result<()> {
         // Merge elements
         for (elem, tags) in &other.elements {
-            let our_tags = self.elements.entry(elem.clone()).or_insert_with(HashSet::new);
+            let our_tags = self.elements.entry(elem.clone()).or_default();
             our_tags.extend(tags);
 
             // Remove any tags that are in our tombstones
@@ -166,7 +169,7 @@ impl<T: Hash + Eq + Clone> OrSet<T> {
 
         // Merge tombstones
         for (elem, tags) in &other.tombstones {
-            let our_tombstones = self.tombstones.entry(elem.clone()).or_insert_with(HashSet::new);
+            let our_tombstones = self.tombstones.entry(elem.clone()).or_default();
             our_tombstones.extend(tags);
 
             // Remove tombstoned tags from our elements
@@ -217,13 +220,13 @@ impl<T: Hash + Eq + Clone + Send + Sync + Serialize + DeserializeOwned> DeltaCrd
     fn merge(&mut self, delta: &Self::Delta) -> Result<()> {
         // Apply additions
         for (elem, tags) in &delta.added {
-            let our_tags = self.elements.entry(elem.clone()).or_insert_with(HashSet::new);
+            let our_tags = self.elements.entry(elem.clone()).or_default();
             our_tags.extend(tags);
         }
 
         // Apply removals (tombstones)
         for (elem, tags) in &delta.removed {
-            let our_tombstones = self.tombstones.entry(elem.clone()).or_insert_with(HashSet::new);
+            let our_tombstones = self.tombstones.entry(elem.clone()).or_default();
             our_tombstones.extend(tags);
 
             // Remove tombstoned tags from elements
@@ -246,17 +249,17 @@ impl<T: Hash + Eq + Clone + Send + Sync + Serialize + DeserializeOwned> DeltaCrd
             return None;
         }
 
-        let mut added = HashMap::new();
-        let mut removed = HashMap::new();
+        let mut added: HashMap<T, HashSet<UniqueTag>> = HashMap::new();
+        let mut removed: HashMap<T, HashSet<UniqueTag>> = HashMap::new();
 
         // Collect changes from changelog
         for version in (since_version + 1)..=self.version {
             if let Some((adds, removes)) = self.changelog.get(&version) {
                 for (elem, tags) in adds {
-                    added.entry(elem.clone()).or_insert_with(HashSet::new).extend(tags);
+                    added.entry(elem.clone()).or_default().extend(tags);
                 }
                 for (elem, tags) in removes {
-                    removed.entry(elem.clone()).or_insert_with(HashSet::new).extend(tags);
+                    removed.entry(elem.clone()).or_default().extend(tags);
                 }
             }
         }
@@ -610,7 +613,7 @@ mod tests {
         assert!(set.contains(&"alice".to_string()));
 
         // Both tags should be present
-        assert_eq!(set.elements.get(&"alice".to_string()).unwrap().len(), 2);
+        assert_eq!(set.elements.get("alice").unwrap().len(), 2);
     }
 
     #[test]
@@ -680,8 +683,8 @@ mod tests {
 
         let delta = set.delta(v0).expect("should have delta");
         assert_eq!(delta.added.len(), 2);
-        assert!(delta.added.contains_key(&"alice".to_string()));
-        assert!(delta.added.contains_key(&"bob".to_string()));
+        assert!(delta.added.contains_key("alice"));
+        assert!(delta.added.contains_key("bob"));
     }
 
     #[test]
@@ -743,11 +746,10 @@ mod tests {
     #[test]
     fn test_vector_clock_happens_before() {
         let mut clock1 = VectorClock::new();
-        let mut clock2 = VectorClock::new();
         let p1 = peer(1);
 
         clock1.increment(p1);
-        clock2 = clock1.clone();
+        let mut clock2 = clock1.clone();
         clock2.increment(p1);
 
         assert!(clock1.happens_before(&clock2));
@@ -784,12 +786,11 @@ mod tests {
     #[test]
     fn test_lww_register_merge_causality() {
         let mut reg1 = LwwRegister::new(0);
-        let mut reg2 = LwwRegister::new(0);
         let p1 = peer(1);
         let p2 = peer(2);
 
         reg1.set(10, p1);
-        reg2 = reg1.clone();
+        let mut reg2 = reg1.clone();
         reg2.set(20, p2);
 
         // reg2 happens after reg1
@@ -933,7 +934,7 @@ mod tests {
                 // Verify we got the right peer
                 assert_eq!(peer_id, peer(1));
                 // Verify delta has our element
-                assert!(delta.added.contains_key(&"test".to_string()));
+                assert!(delta.added.contains_key("test"));
                 Ok(())
             })
         }).await.ok();

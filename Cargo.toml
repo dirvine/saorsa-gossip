@@ -8,11 +8,14 @@ members = [
     "crates/crdt-sync",
     "crates/groups",
     "crates/identity",
+    "crates/coordinator",
+    "crates/rendezvous",
+    "bin/coordinator",
 ]
 resolver = "2"
 
 [workspace.package]
-version = "0.1.1"
+version = "0.1.3"
 edition = "2021"
 authors = ["David Irvine <david@saorsa.com>"]
 license = "MIT OR Apache-2.0"
@@ -30,7 +33,7 @@ anyhow = "1.0"
 
 # Cryptography (PQC)
 saorsa-pqc = "0.3.14"
-saorsa-mls = "0.2.0"
+saorsa-mls = "0.3.1"
 
 # QUIC transport
 ant-quic = "0.10.1"

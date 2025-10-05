@@ -21,7 +21,7 @@ Non‑goals: public peer directory, global search, servers.
 
 **Transport.** `ant-quic` only. QUIC with TLS 1.3, connection migration, NAT rebinding; enable hole‑punching where available. Hybrid or pure‑PQC handshake per policy.
 
-**Crypto.** `saorsa-pqc` for ML‑KEM and ML‑DSA. `saorsa-mls` for group keys. Default suite: ML‑KEM‑768 + ML‑DSA‑65.
+**Crypto.** `saorsa-pqc` for ML‑KEM, ML‑DSA, and ChaCha20‑Poly1305 AEAD. `saorsa-mls` for group keys. Default suite: ML‑KEM‑768 + ML‑DSA‑65 + ChaCha20‑Poly1305.
 
 **Membership.** HyParView partial views for connectivity plus SWIM for failure detection. Active view routes, passive view heals.
 
@@ -76,7 +76,7 @@ Non‑goals: public peer directory, global search, servers.
 
 ## 7. Presence and “Find user”
 
-**Beacons.** For each MLS group epoch, derive `presence_tag = KDF(exporter_secret, user_id || time_slice)`. Sign with ML‑DSA. Encrypt to the group. TTL 10–15 minutes.
+**Beacons.** For each MLS group epoch, derive `presence_tag = KDF(exporter_secret, user_id || time_slice)`. Sign with ML‑DSA. Encrypt to the group with ChaCha20‑Poly1305. TTL 10–15 minutes.
 
 **Query.** If no shared group, run FOAF random‑walk on the contact graph with fanout 3 and TTL 3–4. Replies encrypted to requester.
 

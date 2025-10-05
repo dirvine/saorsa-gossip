@@ -7,28 +7,48 @@ use saorsa_gossip_types::PeerId;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
-/// ML-DSA key pair (placeholder for saorsa-pqc integration)
+/// ML-DSA key pair using saorsa-pqc ML-DSA-65
+///
+/// Stores raw key bytes for serialization compatibility.
+/// Uses ML-DSA-65 which provides ~128-bit security level per SPEC2 §2.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MlDsaKeyPair {
-    /// Public key bytes
+    /// Public key bytes (ML-DSA-65 public key)
     pub public_key: Vec<u8>,
-    /// Secret key bytes (to be secured)
+    /// Secret key bytes (to be secured, ML-DSA-65 secret key)
     secret_key: Vec<u8>,
 }
 
 impl MlDsaKeyPair {
-    /// Generate a new ML-DSA key pair (placeholder)
+    /// Generate a new ML-DSA-65 key pair
+    ///
+    /// Uses saorsa-pqc for post-quantum digital signatures.
     pub fn generate() -> Result<Self> {
-        // Placeholder: would use saorsa-pqc for real ML-DSA-65
+        use saorsa_pqc::{MlDsa65, MlDsaOperations};
+
+        let signer = MlDsa65::new();
+        let (pk, sk) = signer.generate_keypair()?;
+
         Ok(Self {
-            public_key: vec![0u8; 64], // Placeholder size
-            secret_key: vec![0u8; 128], // Placeholder size
+            public_key: pk.as_bytes().to_vec(),
+            secret_key: sk.as_bytes().to_vec(),
         })
     }
 
-    /// Get public key
+    /// Get public key bytes
     pub fn public_key(&self) -> &[u8] {
         &self.public_key
+    }
+
+    /// Get saorsa-pqc public key type
+    #[allow(dead_code)]
+    fn get_public_key_typed(&self) -> Result<saorsa_pqc::MlDsaPublicKey> {
+        Ok(saorsa_pqc::MlDsaPublicKey::from_bytes(&self.public_key)?)
+    }
+
+    /// Get saorsa-pqc secret key type
+    fn get_secret_key_typed(&self) -> Result<saorsa_pqc::MlDsaSecretKey> {
+        Ok(saorsa_pqc::MlDsaSecretKey::from_bytes(&self.secret_key)?)
     }
 
     /// Derive PeerId from public key
@@ -36,17 +56,39 @@ impl MlDsaKeyPair {
         PeerId::from_pubkey(&self.public_key)
     }
 
-    /// Sign a message (placeholder)
-    pub fn sign(&self, _message: &[u8]) -> Result<Vec<u8>> {
-        // Placeholder: would use saorsa-pqc for ML-DSA signing
-        Ok(vec![0u8; 64])
+    /// Sign a message using ML-DSA-65
+    ///
+    /// # Arguments
+    /// * `message` - Message bytes to sign
+    ///
+    /// # Returns
+    /// ML-DSA-65 signature bytes
+    pub fn sign(&self, message: &[u8]) -> Result<Vec<u8>> {
+        use saorsa_pqc::{MlDsa65, MlDsaOperations};
+
+        let signer = MlDsa65::new();
+        let sk = self.get_secret_key_typed()?;
+        let signature = signer.sign(&sk, message)?;
+        Ok(signature.as_bytes().to_vec())
     }
 
-    /// Verify a signature (placeholder)
-    pub fn verify(public_key: &[u8], _message: &[u8], _signature: &[u8]) -> Result<bool> {
-        // Placeholder: would use saorsa-pqc for ML-DSA verification
-        let _ = public_key;
-        Ok(true)
+    /// Verify a signature using ML-DSA-65
+    ///
+    /// # Arguments
+    /// * `public_key` - Public key bytes
+    /// * `message` - Original message bytes
+    /// * `signature` - Signature bytes to verify
+    ///
+    /// # Returns
+    /// `Ok(true)` if signature is valid, `Ok(false)` if invalid
+    pub fn verify(public_key: &[u8], message: &[u8], signature: &[u8]) -> Result<bool> {
+        use saorsa_pqc::{MlDsa65, MlDsaOperations, MlDsaPublicKey, MlDsaSignature};
+
+        let verifier = MlDsa65::new();
+        let pk = MlDsaPublicKey::from_bytes(public_key)?;
+        let sig = MlDsaSignature::from_bytes(signature)?;
+
+        Ok(verifier.verify(&pk, message, &sig)?)
     }
 }
 

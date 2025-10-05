@@ -227,6 +227,8 @@ pub struct PresenceRecord {
     pub expires: u64,
     /// Sequence number for updates
     pub seq: u64,
+    /// Optional four-word identity for FOAF discovery
+    pub four_words: Option<String>,
 }
 
 impl PresenceRecord {
@@ -243,6 +245,29 @@ impl PresenceRecord {
             since: now,
             expires: now + ttl_seconds,
             seq: 0,
+            four_words: None,
+        }
+    }
+
+    /// Create a new presence record with four-word identity
+    pub fn with_four_words(
+        presence_tag: [u8; 32],
+        addr_hints: Vec<String>,
+        ttl_seconds: u64,
+        four_words: String,
+    ) -> Self {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+
+        Self {
+            presence_tag,
+            addr_hints,
+            since: now,
+            expires: now + ttl_seconds,
+            seq: 0,
+            four_words: Some(four_words),
         }
     }
 
@@ -255,6 +280,41 @@ impl PresenceRecord {
 
         now >= self.expires
     }
+}
+
+/// FOAF (Friend-of-a-Friend) query message
+///
+/// Used to discover contacts through the social graph without DHT.
+/// Query propagates up to max_hops (typically 2) with cycle detection.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FoafQuery {
+    /// Unique query ID for deduplication
+    pub query_id: [u8; 16],
+    /// Four-word address being searched for
+    pub target_four_words: String,
+    /// Hop count (starts at 0, incremented at each forward)
+    pub hop: u8,
+    /// Maximum hops allowed (typically 2)
+    pub max_hops: u8,
+    /// Path of peer IDs visited (for cycle detection)
+    pub visited: Vec<PeerId>,
+    /// Query originator (for response routing)
+    pub originator: PeerId,
+}
+
+/// FOAF query response
+///
+/// Sent back to query originator when target is found.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FoafResponse {
+    /// Query ID this responds to
+    pub query_id: [u8; 16],
+    /// Found peer ID
+    pub peer_id: PeerId,
+    /// Address hints for connectivity
+    pub addr_hints: Vec<String>,
+    /// Number of hops traversed to find
+    pub hops: u8,
 }
 
 // Helper module for hex encoding (simplified)

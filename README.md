@@ -10,9 +10,9 @@ A **post-quantum secure gossip overlay network** for decentralized peer-to-peer 
 
 Saorsa Gossip implements a complete gossip overlay with:
 
-- **Post-Quantum Cryptography**: ML-KEM-768 + ML-DSA-65 (FIPS 203/204)
+- **Post-Quantum Cryptography**: ML-KEM-768 + ML-DSA-65 + ChaCha20-Poly1305 (FIPS 203/204)
 - **QUIC Transport**: Low-latency, NAT-traversal with connection migration
-- **MLS Group Security**: RFC 9420 compliant end-to-end encryption
+- **MLS Group Security**: RFC 9420 compliant end-to-end encryption with ChaCha20-Poly1305
 - **Gossip Protocols**: HyParView, SWIM, Plumtree for robust dissemination
 - **Local-First CRDTs**: Delta-CRDTs with anti-entropy synchronization
 - **No DHT**: Contact-graph-based discovery, no global directory
@@ -127,7 +127,7 @@ async fn main() -> anyhow::Result<()> {
 
 - **Beacons**: MLS exporter-derived tags, ML-DSA signed
   - TTL: 10-15 minutes
-  - Encrypted to group
+  - Encrypted to group with ChaCha20-Poly1305
 
 - **FOAF Queries**: Friends-of-friends discovery
   - Fanout: 3
@@ -146,11 +146,15 @@ async fn main() -> anyhow::Result<()> {
 ### Post-Quantum Cryptography
 
 - **ML-KEM-768**: Key encapsulation (FIPS 203)
-- **ML-DSA-65**: Digital signatures (FIPS 204)
+- **ML-DSA-65**: Digital signatures (FIPS 204) - default
+- **SLH-DSA**: Hash-based signatures (FIPS 205 / SPHINCS+) - available for long-term security
+  - 12 parameter sets: SHA2/SHAKE variants at 128/192/256-bit security
+  - Trade-offs: fast (larger sigs) vs small (smaller sigs)
+- **ChaCha20-Poly1305**: AEAD symmetric encryption (quantum-resistant)
 - **MLS**: Group messaging (RFC 9420)
 
 Provided by:
-- [`saorsa-pqc`](https://crates.io/crates/saorsa-pqc) - PQC primitives
+- [`saorsa-pqc`](https://crates.io/crates/saorsa-pqc) v0.3.14+ - PQC primitives including ML-KEM, ML-DSA, SLH-DSA, and ChaCha20-Poly1305
 - [`saorsa-mls`](https://crates.io/crates/saorsa-mls) - MLS protocol
 
 ### Threat Model

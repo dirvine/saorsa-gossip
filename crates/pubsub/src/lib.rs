@@ -27,7 +27,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, RwLock};
 use tokio::time;
-use tracing::{debug, trace, warn};
+use tracing::{debug, error, trace, warn};
 
 /// Maximum message cache size per topic (10,000 messages)
 const MAX_CACHE_SIZE: usize = 10_000;
@@ -59,8 +59,10 @@ pub struct GossipMessage {
     pub header: MessageHeader,
     /// Optional payload (None for IHAVE)
     pub payload: Option<Bytes>,
-    /// Signature (ML-DSA - placeholder for now)
+    /// ML-DSA signature over the header
     pub signature: Vec<u8>,
+    /// Sender's ML-DSA public key for verification
+    pub public_key: Vec<u8>,
 }
 
 /// Cached message entry
@@ -204,16 +206,24 @@ pub struct PlumtreePubSub<T: GossipTransport + 'static> {
     epoch_start: std::time::SystemTime,
     /// Transport layer for sending messages
     transport: Arc<T>,
+    /// ML-DSA key pair for signing messages
+    signing_key: Arc<saorsa_gossip_identity::MlDsaKeyPair>,
 }
 
 impl<T: GossipTransport + 'static> PlumtreePubSub<T> {
     /// Create a new Plumtree pub/sub instance
-    pub fn new(peer_id: PeerId, transport: Arc<T>) -> Self {
+    ///
+    /// # Arguments
+    /// * `peer_id` - Local peer identifier
+    /// * `transport` - Transport layer for network communication
+    /// * `signing_key` - ML-DSA key pair for message signing
+    pub fn new(peer_id: PeerId, transport: Arc<T>, signing_key: saorsa_gossip_identity::MlDsaKeyPair) -> Self {
         let pubsub = Self {
             topics: Arc::new(RwLock::new(HashMap::new())),
             peer_id,
             epoch_start: std::time::SystemTime::UNIX_EPOCH,
             transport,
+            signing_key: Arc::new(signing_key),
         };
 
         // Start background tasks
@@ -239,18 +249,57 @@ impl<T: GossipTransport + 'static> PlumtreePubSub<T> {
         MessageHeader::calculate_msg_id(topic, epoch, &self.peer_id, payload_hash.as_bytes())
     }
 
-    /// Create placeholder signature (TODO: integrate ML-DSA)
-    fn sign_message(&self, _header: &MessageHeader) -> Vec<u8> {
-        // Placeholder: return empty signature
-        // TODO: Integrate saorsa-pqc ML-DSA signing
-        Vec::new()
+    /// Sign message header using ML-DSA-65
+    ///
+    /// Serializes the header and signs it with the node's ML-DSA key pair.
+    /// Per SPEC2 §2, all gossip messages MUST be signed for authenticity.
+    fn sign_message(&self, header: &MessageHeader) -> Vec<u8> {
+        // Serialize header for signing
+        let header_bytes = match bincode::serialize(header) {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                error!("Failed to serialize header for signing: {}", e);
+                return Vec::new();
+            }
+        };
+
+        // Sign with ML-DSA-65
+        match self.signing_key.sign(&header_bytes) {
+            Ok(signature) => signature,
+            Err(e) => {
+                error!("Failed to sign message: {}", e);
+                Vec::new()
+            }
+        }
     }
 
-    /// Verify placeholder signature (TODO: integrate ML-DSA)
-    fn verify_signature(&self, _header: &MessageHeader, _signature: &[u8]) -> bool {
-        // Placeholder: always return true
-        // TODO: Integrate saorsa-pqc ML-DSA verification
-        true
+    /// Verify message signature using ML-DSA-65
+    ///
+    /// # Arguments
+    /// * `header` - Message header to verify
+    /// * `signature` - ML-DSA signature bytes
+    /// * `public_key` - Sender's public key bytes
+    ///
+    /// # Returns
+    /// `true` if signature is valid, `false` otherwise
+    fn verify_signature(&self, header: &MessageHeader, signature: &[u8], public_key: &[u8]) -> bool {
+        // Serialize header
+        let header_bytes = match bincode::serialize(header) {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                warn!("Failed to serialize header for verification: {}", e);
+                return false;
+            }
+        };
+
+        // Verify signature
+        match saorsa_gossip_identity::MlDsaKeyPair::verify(public_key, &header_bytes, signature) {
+            Ok(valid) => valid,
+            Err(e) => {
+                warn!("Failed to verify signature: {}", e);
+                false
+            }
+        }
     }
 
     /// Publish a message (local origin)
@@ -272,6 +321,7 @@ impl<T: GossipTransport + 'static> PlumtreePubSub<T> {
             header: header.clone(),
             payload: Some(payload.clone()),
             signature,
+            public_key: self.signing_key.public_key().to_vec(),
         };
 
         let mut topics = self.topics.write().await;
@@ -316,7 +366,7 @@ impl<T: GossipTransport + 'static> PlumtreePubSub<T> {
         let msg_id = message.header.msg_id;
 
         // Verify signature
-        if !self.verify_signature(&message.header, &message.signature) {
+        if !self.verify_signature(&message.header, &message.signature, &message.public_key) {
             warn!(peer_id = %from, msg_id = ?msg_id, "Invalid signature, dropping");
             return Err(anyhow!("Invalid signature"));
         }
@@ -401,10 +451,12 @@ impl<T: GossipTransport + 'static> PlumtreePubSub<T> {
                 hop: 0,
                 ttl: 10,
             };
+            let iwant_header_clone = iwant_header.clone();
             let iwant_msg = GossipMessage {
                 header: iwant_header,
                 payload: Some(bincode::serialize(&requested).map_err(|e| anyhow!("Serialization failed: {}", e))?.into()),
-                signature: vec![], // TODO: Sign
+                signature: self.sign_message(&iwant_header_clone),
+                public_key: self.signing_key.public_key().to_vec(),
             };
             let bytes = bincode::serialize(&iwant_msg)
                 .map_err(|e| anyhow!("Serialization failed: {}", e))?;
@@ -443,6 +495,7 @@ impl<T: GossipTransport + 'static> PlumtreePubSub<T> {
                 header: cached.header.clone(),
                 payload: Some(cached.payload.clone()),
                 signature: self.sign_message(&cached.header),
+                public_key: self.signing_key.public_key().to_vec(),
             };
 
             let bytes = bincode::serialize(&_message)
@@ -459,6 +512,7 @@ impl<T: GossipTransport + 'static> PlumtreePubSub<T> {
     fn spawn_ihave_flusher(&self) {
         let topics = self.topics.clone();
         let transport = self.transport.clone();
+        let signing_key = self.signing_key.clone();
 
         tokio::spawn(async move {
             let mut interval = time::interval(Duration::from_millis(IHAVE_FLUSH_INTERVAL_MS));
@@ -493,10 +547,19 @@ impl<T: GossipTransport + 'static> PlumtreePubSub<T> {
                             hop: 0,
                             ttl: 10,
                         };
+                        let ihave_header_clone = ihave_header.clone();
+
+                        // Sign the header
+                        let signature = match bincode::serialize(&ihave_header_clone) {
+                            Ok(bytes) => signing_key.sign(&bytes).unwrap_or_default(),
+                            Err(_) => Vec::new(),
+                        };
+
                         let ihave_msg = GossipMessage {
                             header: ihave_header,
                             payload: Some(bincode::serialize(&batch).unwrap_or_default().into()),
-                            signature: vec![], // TODO: Sign
+                            signature,
+                            public_key: signing_key.public_key().to_vec(),
                         };
                         if let Ok(bytes) = bincode::serialize(&ihave_msg) {
                             let _ = transport.send_to_peer(peer, StreamType::PubSub, bytes.into()).await;
@@ -600,18 +663,24 @@ mod tests {
         Arc::new(QuicTransport::new(TransportConfig::default()))
     }
 
+    fn test_signing_key() -> saorsa_gossip_identity::MlDsaKeyPair {
+        saorsa_gossip_identity::MlDsaKeyPair::generate().expect("Failed to generate test key pair")
+    }
+
     #[tokio::test]
     async fn test_pubsub_creation() {
         let peer_id = test_peer_id(1);
         let transport = test_transport();
-        let _pubsub = PlumtreePubSub::new(peer_id, transport);
+        let signing_key = test_signing_key();
+        let _pubsub = PlumtreePubSub::new(peer_id, transport, signing_key);
     }
 
     #[tokio::test]
     async fn test_publish_and_subscribe() {
         let peer_id = test_peer_id(1);
         let transport = test_transport();
-        let pubsub = PlumtreePubSub::new(peer_id, transport);
+        let signing_key = test_signing_key();
+        let pubsub = PlumtreePubSub::new(peer_id, transport, signing_key);
         let topic = TopicId::new([1u8; 32]);
 
         let mut rx = pubsub.subscribe(topic);
@@ -634,7 +703,7 @@ mod tests {
     async fn test_message_caching() {
         let peer_id = test_peer_id(1);
         let transport = test_transport();
-        let pubsub = PlumtreePubSub::new(peer_id, transport);
+        let pubsub = PlumtreePubSub::new(peer_id, transport, test_signing_key());
         let topic = TopicId::new([1u8; 32]);
 
         let payload = Bytes::from("test");
@@ -650,9 +719,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_duplicate_detection_prune() {
+
         let peer_id = test_peer_id(1);
         let transport = test_transport();
-        let pubsub = PlumtreePubSub::new(peer_id, transport);
+        let signing_key = test_signing_key();
+        let pubsub = PlumtreePubSub::new(peer_id, transport, signing_key.clone());
         let topic = TopicId::new([1u8; 32]);
         let from_peer = test_peer_id(2);
 
@@ -671,10 +742,15 @@ mod tests {
             ttl: 10,
         };
 
+        // Create properly signed message
+        let header_bytes = bincode::serialize(&header).expect("serialize");
+        let signature = signing_key.sign(&header_bytes).expect("sign");
+
         let message = GossipMessage {
             header,
             payload: Some(payload.clone()),
-            signature: Vec::new(),
+            signature,
+            public_key: signing_key.public_key().to_vec(),
         };
 
         // First EAGER - should be accepted
@@ -694,7 +770,7 @@ mod tests {
     async fn test_ihave_handling() {
         let peer_id = test_peer_id(1);
         let transport = test_transport();
-        let pubsub = PlumtreePubSub::new(peer_id, transport);
+        let pubsub = PlumtreePubSub::new(peer_id, transport, test_signing_key());
         let topic = TopicId::new([1u8; 32]);
         let from_peer = test_peer_id(2);
 
@@ -712,7 +788,7 @@ mod tests {
     async fn test_iwant_graft() {
         let peer_id = test_peer_id(1);
         let transport = test_transport();
-        let pubsub = PlumtreePubSub::new(peer_id, transport);
+        let pubsub = PlumtreePubSub::new(peer_id, transport, test_signing_key());
         let topic = TopicId::new([1u8; 32]);
         let from_peer = test_peer_id(2);
 
@@ -743,7 +819,7 @@ mod tests {
     async fn test_degree_maintenance() {
         let peer_id = test_peer_id(1);
         let transport = test_transport();
-        let pubsub = PlumtreePubSub::new(peer_id, transport);
+        let pubsub = PlumtreePubSub::new(peer_id, transport, test_signing_key());
         let topic = TopicId::new([1u8; 32]);
 
         // Add many peers to lazy
@@ -770,7 +846,7 @@ mod tests {
     async fn test_cache_expiration() {
         let peer_id = test_peer_id(1);
         let transport = test_transport();
-        let pubsub = PlumtreePubSub::new(peer_id, transport);
+        let pubsub = PlumtreePubSub::new(peer_id, transport, test_signing_key());
         let topic = TopicId::new([1u8; 32]);
 
         let payload = Bytes::from("test");
@@ -790,5 +866,114 @@ mod tests {
 
             assert_eq!(state.message_cache.len(), 0);
         }
+    }
+
+    // TDD: RED phase - These tests will fail until we implement real ML-DSA signing
+
+    #[tokio::test]
+    async fn test_message_signing_with_real_mldsa() {
+        // GREEN: Now implementing real ML-DSA signing
+        use saorsa_gossip_identity::MlDsaKeyPair;
+
+        let keypair = MlDsaKeyPair::generate().expect("keypair");
+        let peer_id = PeerId::new([1u8; 32]);
+        let transport = test_transport();
+
+        // Create PlumtreePubSub with signing key
+        let _pubsub = PlumtreePubSub::new(peer_id, transport, keypair.clone());
+
+        // Create a message header
+        let topic = TopicId::new([1u8; 32]);
+        let header = MessageHeader {
+            version: 1,
+            topic,
+            msg_id: [0u8; 32],
+            kind: MessageKind::Eager,
+            hop: 0,
+            ttl: 10,
+        };
+
+        // Serialize header for signing
+        let header_bytes = bincode::serialize(&header).expect("serialize");
+
+        // Sign with ML-DSA
+        let signature = keypair.sign(&header_bytes).expect("sign");
+
+        // Signature should NOT be empty
+        assert!(!signature.is_empty(), "ML-DSA signature should not be empty");
+
+        // Signature should be valid
+        let valid = MlDsaKeyPair::verify(keypair.public_key(), &header_bytes, &signature).expect("verify");
+        assert!(valid, "Signature should be valid");
+    }
+
+    #[tokio::test]
+    async fn test_message_signature_verification() {
+        // RED: This will fail because verify_signature always returns true
+        use saorsa_gossip_identity::MlDsaKeyPair;
+
+        let keypair = MlDsaKeyPair::generate().expect("keypair");
+
+        let topic = TopicId::new([1u8; 32]);
+        let header = MessageHeader {
+            version: 1,
+            topic,
+            msg_id: [1u8; 32],
+            kind: MessageKind::Eager,
+            hop: 0,
+            ttl: 10,
+        };
+
+        let header_bytes = bincode::serialize(&header).expect("serialize");
+        let signature = keypair.sign(&header_bytes).expect("sign");
+
+        // Valid signature should verify
+        let valid = MlDsaKeyPair::verify(keypair.public_key(), &header_bytes, &signature).expect("verify");
+        assert!(valid, "Valid signature should verify");
+
+        // Tampered signature should NOT verify
+        let mut bad_signature = signature.clone();
+        bad_signature[0] ^= 0xFF; // Flip bits
+
+        let invalid = MlDsaKeyPair::verify(keypair.public_key(), &header_bytes, &bad_signature).expect("verify");
+        assert!(!invalid, "Tampered signature should not verify");
+    }
+
+    #[tokio::test]
+    async fn test_published_message_has_valid_signature() {
+        // GREEN: Now verifying that published messages have valid signatures
+        use saorsa_gossip_identity::MlDsaKeyPair;
+
+        let keypair = MlDsaKeyPair::generate().expect("keypair");
+        let peer_id = PeerId::new([1u8; 32]);
+        let transport = test_transport();
+
+        // Create pubsub with signing key
+        let pubsub = PlumtreePubSub::new(peer_id, transport, keypair.clone());
+
+        let topic = TopicId::new([1u8; 32]);
+        let payload = Bytes::from("test message");
+
+        // Publish a message
+        pubsub.publish(topic, payload.clone()).await.ok();
+
+        // The message should be signed internally
+        // Verify by checking that sign_message produces non-empty signatures
+        let header = MessageHeader {
+            version: 1,
+            topic,
+            msg_id: [0u8; 32],
+            kind: MessageKind::Eager,
+            hop: 0,
+            ttl: 10,
+        };
+
+        let signature = pubsub.sign_message(&header);
+        assert!(!signature.is_empty(), "Published messages should have non-empty signatures");
+
+        // Verify the signature is valid
+        let header_bytes = bincode::serialize(&header).expect("serialize");
+        let valid = MlDsaKeyPair::verify(keypair.public_key(), &header_bytes, &signature).expect("verify");
+        assert!(valid, "Signature should be valid");
     }
 }

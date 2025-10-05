@@ -54,9 +54,30 @@ impl GroupContext {
     }
 
     /// Derive exporter secret for presence tags
-    pub fn derive_presence_secret(&self, _user_id: &[u8], _time_slice: u64) -> [u8; 32] {
-        // Placeholder: KDF(exporter_secret, user_id || time_slice)
-        [0u8; 32]
+    ///
+    /// Uses BLAKE3 keyed hash to derive presence tags from MLS exporter secret.
+    /// Per SPEC2 §10, presence tags rotate based on time_slice for privacy.
+    ///
+    /// # Arguments
+    /// * `exporter_context` - MLS exporter secret (32 bytes)
+    /// * `user_id` - User's PeerId bytes
+    /// * `time_slice` - Time-based rotation parameter (e.g., hour since epoch)
+    ///
+    /// # Returns
+    /// Derived presence tag (32 bytes)
+    pub fn derive_presence_secret(
+        exporter_context: &[u8; 32],
+        user_id: &[u8],
+        time_slice: u64,
+    ) -> [u8; 32] {
+        // KDF(exporter_secret, user_id || time_slice) using BLAKE3 keyed hash
+        let mut hasher = blake3::Hasher::new_keyed(exporter_context);
+        hasher.update(user_id);
+        hasher.update(&time_slice.to_le_bytes());
+        let hash = hasher.finalize();
+        let mut tag = [0u8; 32];
+        tag.copy_from_slice(&hash.as_bytes()[..32]);
+        tag
     }
 }
 
@@ -106,5 +127,54 @@ mod tests {
 
         assert_eq!(ctx_from_entity.topic_id, ctx_from_new.topic_id);
         assert_eq!(ctx_from_entity.epoch, ctx_from_new.epoch);
+    }
+
+    #[test]
+    fn test_derive_presence_secret_deterministic() {
+        let exporter = [1u8; 32];
+        let user_id = [2u8; 32];
+        let time_slice = 12345u64;
+
+        let tag1 = GroupContext::derive_presence_secret(&exporter, &user_id, time_slice);
+        let tag2 = GroupContext::derive_presence_secret(&exporter, &user_id, time_slice);
+
+        assert_eq!(tag1, tag2, "Same inputs should produce same tag");
+    }
+
+    #[test]
+    fn test_derive_presence_secret_rotation() {
+        let exporter = [1u8; 32];
+        let user_id = [2u8; 32];
+
+        let tag1 = GroupContext::derive_presence_secret(&exporter, &user_id, 1000);
+        let tag2 = GroupContext::derive_presence_secret(&exporter, &user_id, 1001);
+
+        assert_ne!(tag1, tag2, "Different time slices should produce different tags");
+    }
+
+    #[test]
+    fn test_derive_presence_secret_user_unique() {
+        let exporter = [1u8; 32];
+        let user1 = [1u8; 32];
+        let user2 = [2u8; 32];
+        let time_slice = 12345u64;
+
+        let tag1 = GroupContext::derive_presence_secret(&exporter, &user1, time_slice);
+        let tag2 = GroupContext::derive_presence_secret(&exporter, &user2, time_slice);
+
+        assert_ne!(tag1, tag2, "Different users should produce different tags");
+    }
+
+    #[test]
+    fn test_derive_presence_secret_exporter_unique() {
+        let exporter1 = [1u8; 32];
+        let exporter2 = [2u8; 32];
+        let user_id = [3u8; 32];
+        let time_slice = 12345u64;
+
+        let tag1 = GroupContext::derive_presence_secret(&exporter1, &user_id, time_slice);
+        let tag2 = GroupContext::derive_presence_secret(&exporter2, &user_id, time_slice);
+
+        assert_ne!(tag1, tag2, "Different exporters should produce different tags");
     }
 }

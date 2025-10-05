@@ -6,7 +6,6 @@
 //! - IBLT summaries for efficient reconciliation
 
 use anyhow::{Context, Result};
-use std::time::SystemTime;
 use saorsa_gossip_groups::GroupContext;
 use saorsa_gossip_transport::GossipTransport;
 use saorsa_gossip_types::{PeerId, PresenceRecord, TopicId};
@@ -94,7 +93,7 @@ impl PresenceManager {
         // Clone everything needed for the background task
         let peer_id = self.peer_id;
         let groups = self.groups.clone();
-        let transport = self.transport.clone();
+        let _transport = self.transport.clone(); // TODO: Use for actual beacon broadcasting
         let received_beacons = self.received_beacons.clone();
 
         // Spawn background task for beacon broadcasting
@@ -108,7 +107,7 @@ impl PresenceManager {
                         // Broadcast beacons to all joined groups
                         let groups_lock = groups.read().await;
 
-                        for (topic_id, group_ctx) in groups_lock.iter() {
+                        for (topic_id, _group_ctx) in groups_lock.iter() {
                             // Derive presence tag for current time slice
                             let now = std::time::SystemTime::now()
                                 .duration_since(std::time::UNIX_EPOCH)
@@ -116,8 +115,12 @@ impl PresenceManager {
                                 .unwrap_or(0);
                             let time_slice = now / 3600; // Hourly rotation
 
-                            // Use placeholder exporter secret (in production, use real MLS secret)
-                            let exporter_secret = [0u8; 32]; // TODO: Get from group_ctx
+                            // Derive presence tag using MLS group's exporter secret
+                            // In production, get actual MLS exporter secret from group_ctx
+                            // For now, use a deterministic placeholder based on topic_id
+                            let mut exporter_secret = [0u8; 32];
+                            exporter_secret.copy_from_slice(&topic_id.as_bytes()[..32]);
+
                             let presence_tag = derive_presence_tag(&exporter_secret, &peer_id, time_slice);
 
                             // Create presence record
@@ -258,6 +261,33 @@ impl PresenceManager {
         Ok(cleaned_count)
     }
 
+    /// Get all joined topics/groups
+    ///
+    /// Returns a list of all topic IDs that we have joined (i.e., have MLS groups for).
+    /// Used by FOAF discovery to search for contacts in shared groups.
+    pub async fn get_groups(&self) -> Vec<TopicId> {
+        let groups = self.groups.read().await;
+        groups.keys().copied().collect()
+    }
+
+    /// Get presence records for a specific topic
+    ///
+    /// Returns a map of PeerId → PresenceRecord for all peers with beacons in the topic.
+    /// Used by FOAF discovery to find contacts via presence beacons.
+    ///
+    /// # Arguments
+    /// * `topic` - The topic/group to query
+    ///
+    /// # Returns
+    /// HashMap of peer_id → presence_record for all peers with beacons in this topic
+    pub async fn get_group_presence(&self, topic: TopicId) -> HashMap<PeerId, PresenceRecord> {
+        let beacons = self.received_beacons.read().await;
+
+        beacons.get(&topic)
+            .cloned()
+            .unwrap_or_default()
+    }
+
     /// Handle received beacon from a peer
     ///
     /// Stores the beacon for presence tracking.
@@ -307,8 +337,9 @@ impl Presence for PresenceManager {
 
 /// Derive presence tag from MLS exporter secret
 ///
+/// Delegates to GroupContext::derive_presence_secret for consistent KDF.
 /// Uses BLAKE3 keyed hash to derive a rotating presence tag.
-/// Tags rotate every hour based on time_slice.
+/// Tags rotate every hour based on time_slice per SPEC2 §10.
 ///
 /// # Arguments
 /// * `exporter_secret` - MLS group exporter secret (32 bytes)
@@ -319,13 +350,12 @@ pub fn derive_presence_tag(
     user_id: &PeerId,
     time_slice: u64,
 ) -> [u8; 32] {
-    let mut hasher = blake3::Hasher::new_keyed(exporter_secret);
-    hasher.update(user_id.as_bytes());
-    hasher.update(&time_slice.to_le_bytes());
-    let hash = hasher.finalize();
-    let mut tag = [0u8; 32];
-    tag.copy_from_slice(&hash.as_bytes()[..32]);
-    tag
+    // Use GroupContext's presence secret derivation for consistency
+    saorsa_gossip_groups::GroupContext::derive_presence_secret(
+        exporter_secret,
+        user_id.as_bytes(),
+        time_slice,
+    )
 }
 
 #[cfg(test)]

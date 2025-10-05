@@ -10,11 +10,12 @@ keywords = ["mls", "e2ee", "groups", "encryption", "messaging"]
 categories = ["cryptography"]
 
 [dependencies]
-saorsa-gossip-types = { version = "0.1.1", path = "../types" }
+saorsa-gossip-types = { version = "0.1.3", path = "../types" }
 anyhow = { workspace = true }
 serde = { workspace = true }
 saorsa-mls = { workspace = true }
 saorsa-pqc = { workspace = true }
+blake3 = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }

@@ -253,7 +253,8 @@ Tests two-node communication:
 
 - ✅ **Ed25519 keypairs**: For peer identity
 - ✅ **QUIC TLS 1.3**: For transport encryption
-- ✅ **Post-quantum support**: Via ant-quic PQC option
+- ✅ **ChaCha20-Poly1305**: For AEAD symmetric encryption (from saorsa-pqc)
+- ✅ **Post-quantum support**: ML-KEM-768 + ML-DSA-65 via saorsa-pqc
 - ✅ **Peer authentication**: Via derived PeerIDs
 
 ### Attack Mitigation

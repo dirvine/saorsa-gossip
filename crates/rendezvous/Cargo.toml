@@ -1,25 +1,24 @@
 [package]
-name = "saorsa-gossip-identity"
+name = "saorsa-gossip-rendezvous"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Post-quantum identity management for Saorsa Gossip: ML-DSA-65 keypairs and PeerId derivation"
-keywords = ["post-quantum", "ml-dsa", "identity", "cryptography", "pqc"]
-categories = ["cryptography"]
+description = "Rendezvous shards for global findability in Saorsa Gossip"
+keywords = ["p2p", "gossip", "rendezvous", "discovery", "sharding"]
+categories = ["network-programming"]
 
 [dependencies]
 saorsa-gossip-types = { version = "0.1.3", path = "../types" }
-anyhow = { workspace = true }
-serde = { workspace = true }
-blake3 = { workspace = true }
 saorsa-pqc = { workspace = true }
-bincode = { workspace = true }
+serde = { workspace = true }
+ciborium = "0.2"
+bytes = { workspace = true }
+anyhow = { workspace = true }
+blake3 = { workspace = true }
 tokio = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
-tokio = { workspace = true }
 tokio-test = { workspace = true }
-tempfile = "3.0"
