@@ -18,6 +18,23 @@ impl TopicId {
         Self(bytes)
     }
 
+    /// Create a TopicId from an entity identifier string
+    ///
+    /// Uses BLAKE3 to hash the entity_id string into a 32-byte topic identifier.
+    /// This ensures deterministic topic IDs for the same entity across different nodes.
+    ///
+    /// # Arguments
+    /// * `entity_id` - String identifier for the entity (channel, project, org, etc.)
+    ///
+    /// # Returns
+    /// * `Result<Self>` - TopicId derived from the entity_id
+    pub fn from_entity(entity_id: &str) -> Result<Self, anyhow::Error> {
+        let hash = blake3::hash(entity_id.as_bytes());
+        let mut bytes = [0u8; 32];
+        bytes.copy_from_slice(&hash.as_bytes()[..32]);
+        Ok(Self(bytes))
+    }
+
     /// Get the underlying bytes
     pub const fn as_bytes(&self) -> &[u8; 32] {
         &self.0
@@ -383,5 +400,45 @@ mod tests {
         // Verify msg_id is not all zeros
         assert_ne!(header.msg_id, [0u8; 32], "Message ID should be calculated");
         assert_eq!(header.msg_id.len(), 32, "Message ID should be 32 bytes");
+    }
+
+    // TDD: New failing tests for TopicId::from_entity
+
+    #[test]
+    fn test_topic_id_from_entity() {
+        // RED: This should fail because from_entity doesn't exist yet
+        let entity_id = "channel-123";
+        let topic = TopicId::from_entity(entity_id).expect("should create topic from entity");
+
+        // Should produce a valid 32-byte topic ID
+        assert_eq!(topic.as_bytes().len(), 32);
+    }
+
+    #[test]
+    fn test_topic_id_from_entity_deterministic() {
+        // Same entity ID should always produce the same topic
+        let entity_id = "project-xyz";
+        let topic1 = TopicId::from_entity(entity_id).expect("should create topic");
+        let topic2 = TopicId::from_entity(entity_id).expect("should create topic");
+
+        assert_eq!(topic1, topic2, "Same entity should produce same topic");
+    }
+
+    #[test]
+    fn test_topic_id_from_entity_unique() {
+        // Different entity IDs should produce different topics
+        let topic1 = TopicId::from_entity("channel-A").expect("should create topic");
+        let topic2 = TopicId::from_entity("channel-B").expect("should create topic");
+
+        assert_ne!(topic1, topic2, "Different entities should produce different topics");
+    }
+
+    #[test]
+    fn test_topic_id_from_entity_hex() {
+        // Should accept hex-encoded entity IDs
+        let hex_entity = "deadbeef12345678";
+        let topic = TopicId::from_entity(hex_entity).expect("should create topic from hex");
+
+        assert_eq!(topic.as_bytes().len(), 32);
     }
 }

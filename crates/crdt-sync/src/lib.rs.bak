@@ -27,7 +27,7 @@ pub enum CrdtType {
 /// Delta-CRDT trait for bandwidth-efficient synchronization
 pub trait DeltaCrdt: Send + Sync {
     /// Type of the delta
-    type Delta: Clone + Serialize + for<'de> Deserialize<'de> + Send;
+    type Delta: Clone + Serialize + for<'de> Deserialize<'de>;
 
     /// Merge a delta into this CRDT
     fn merge(&mut self, delta: &Self::Delta) -> Result<()>;
@@ -201,7 +201,6 @@ impl<T: Hash + Eq + Clone> Default for OrSet<T> {
 
 /// Delta for OR-Set (changes since a version)
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound = "T: Serialize + DeserializeOwned")]
 pub struct OrSetDelta<T: Hash + Eq + Clone + Serialize + DeserializeOwned> {
     /// Added elements with their tags
     pub added: HashMap<T, HashSet<UniqueTag>>,
@@ -408,171 +407,6 @@ impl<T: Clone> LwwRegister<T> {
     }
 }
 
-/// Anti-Entropy Manager for periodic CRDT reconciliation
-///
-/// Manages periodic delta synchronization between peers to ensure
-/// eventual consistency. Uses exponential backoff for failed peers.
-pub struct AntiEntropyManager<T>
-where
-    T: DeltaCrdt + Clone + Send + Sync + 'static,
-{
-    /// The CRDT being synchronized
-    crdt: std::sync::Arc<tokio::sync::RwLock<T>>,
-    /// Peer versions we've seen (peer_id -> version)
-    peer_versions: std::sync::Arc<tokio::sync::RwLock<HashMap<PeerId, u64>>>,
-    /// Sync interval in seconds
-    interval_secs: u64,
-    /// Background task handle
-    task_handle: std::sync::Arc<tokio::sync::RwLock<Option<tokio::task::JoinHandle<()>>>>,
-    /// Shutdown signal
-    shutdown_tx: std::sync::Arc<tokio::sync::RwLock<Option<tokio::sync::mpsc::Sender<()>>>>,
-}
-
-impl<T> AntiEntropyManager<T>
-where
-    T: DeltaCrdt + Clone + Send + Sync + 'static,
-{
-    /// Create a new Anti-Entropy Manager
-    pub fn new(crdt: std::sync::Arc<tokio::sync::RwLock<T>>, interval_secs: u64) -> Self {
-        Self {
-            crdt,
-            peer_versions: std::sync::Arc::new(tokio::sync::RwLock::new(HashMap::new())),
-            interval_secs,
-            task_handle: std::sync::Arc::new(tokio::sync::RwLock::new(None)),
-            shutdown_tx: std::sync::Arc::new(tokio::sync::RwLock::new(None)),
-        }
-    }
-
-    /// Start anti-entropy synchronization
-    ///
-    /// Periodically syncs with peers using delta-based reconciliation.
-    /// Callback is called with (peer_id, delta) for each sync.
-    pub async fn start<F>(&self, sync_callback: F) -> Result<()>
-    where
-        F: Fn(PeerId, T::Delta) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send>>
-            + Send
-            + Sync
-            + 'static,
-    {
-        let (shutdown_tx, mut shutdown_rx) = tokio::sync::mpsc::channel::<()>(1);
-
-        // Store shutdown sender
-        {
-            let mut tx = self.shutdown_tx.write().await;
-            *tx = Some(shutdown_tx);
-        }
-
-        let crdt = self.crdt.clone();
-        let peer_versions = self.peer_versions.clone();
-        let interval_secs = self.interval_secs;
-        let sync_callback = std::sync::Arc::new(sync_callback);
-
-        let task = tokio::spawn(async move {
-            let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(interval_secs));
-
-            loop {
-                tokio::select! {
-                    _ = interval.tick() => {
-                        // Get all peers we need to sync with
-                        let peers_to_sync: Vec<(PeerId, u64)> = {
-                            let versions = peer_versions.read().await;
-                            versions.iter().map(|(p, v)| (*p, *v)).collect()
-                        };
-
-                        // Generate and send deltas to each peer
-                        for (peer_id, peer_version) in peers_to_sync {
-                            let delta = {
-                                let crdt_lock = crdt.read().await;
-                                crdt_lock.delta(peer_version)
-                            };
-
-                            if let Some(delta) = delta {
-                                let callback = sync_callback.clone();
-                                if let Err(e) = callback(peer_id, delta).await {
-                                    tracing::warn!("Failed to sync with peer {:?}: {}", peer_id, e);
-                                }
-                            }
-                        }
-                    }
-                    _ = shutdown_rx.recv() => {
-                        tracing::info!("Anti-entropy manager shutting down");
-                        break;
-                    }
-                }
-            }
-        });
-
-        // Store task handle
-        {
-            let mut handle = self.task_handle.write().await;
-            *handle = Some(task);
-        }
-
-        Ok(())
-    }
-
-    /// Stop anti-entropy synchronization
-    pub async fn stop(&self) -> Result<()> {
-        // Send shutdown signal
-        if let Some(tx) = self.shutdown_tx.write().await.take() {
-            let _ = tx.send(()).await;
-        }
-
-        // Wait for task to complete (with timeout)
-        if let Some(handle) = self.task_handle.write().await.take() {
-            match tokio::time::timeout(tokio::time::Duration::from_secs(5), handle).await {
-                Ok(Ok(())) => Ok(()),
-                Ok(Err(e)) => Err(anyhow::anyhow!("Task panicked: {}", e)),
-                Err(_) => Err(anyhow::anyhow!("Shutdown timeout")),
-            }
-        } else {
-            Ok(())
-        }
-    }
-
-    /// Update the version we've seen from a peer
-    ///
-    /// Call this when receiving a delta from a peer to track
-    /// what they've sent us.
-    pub async fn update_peer_version(&self, peer_id: PeerId, version: u64) {
-        let mut versions = self.peer_versions.write().await;
-        versions.insert(peer_id, version);
-    }
-
-    /// Apply a delta from a peer
-    ///
-    /// Merges the delta and updates the peer's version.
-    pub async fn apply_delta(&self, peer_id: PeerId, delta: &T::Delta, version: u64) -> Result<()> {
-        // Merge delta into our CRDT
-        {
-            let mut crdt = self.crdt.write().await;
-            crdt.merge(delta)?;
-        }
-
-        // Update peer version
-        self.update_peer_version(peer_id, version).await;
-
-        Ok(())
-    }
-
-    /// Add a peer to sync with
-    pub async fn add_peer(&self, peer_id: PeerId) {
-        let mut versions = self.peer_versions.write().await;
-        versions.entry(peer_id).or_insert(0);
-    }
-
-    /// Remove a peer from sync
-    pub async fn remove_peer(&self, peer_id: &PeerId) {
-        let mut versions = self.peer_versions.write().await;
-        versions.remove(peer_id);
-    }
-
-    /// Get current CRDT state
-    pub async fn get_crdt(&self) -> T {
-        self.crdt.read().await.clone()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -588,12 +422,12 @@ mod tests {
         let mut set = OrSet::new();
         let p1 = peer(1);
 
-        set.add("alice".to_string(), (p1, 1)).ok();
-        assert!(set.contains(&"alice".to_string()));
+        set.add("alice", (p1, 1)).ok();
+        assert!(set.contains(&"alice"));
         assert_eq!(set.len(), 1);
 
-        set.remove(&"alice".to_string()).ok();
-        assert!(!set.contains(&"alice".to_string()));
+        set.remove(&"alice").ok();
+        assert!(!set.contains(&"alice"));
         assert_eq!(set.len(), 0);
     }
 
@@ -604,13 +438,13 @@ mod tests {
         let p2 = peer(2);
 
         // Concurrent adds from different peers
-        set.add("alice".to_string(), (p1, 1)).ok();
-        set.add("alice".to_string(), (p2, 1)).ok();
+        set.add("alice", (p1, 1)).ok();
+        set.add("alice", (p2, 1)).ok();
 
-        assert!(set.contains(&"alice".to_string()));
+        assert!(set.contains(&"alice"));
 
         // Both tags should be present
-        assert_eq!(set.elements.get(&"alice".to_string()).unwrap().len(), 2);
+        assert_eq!(set.elements.get(&"alice").unwrap().len(), 2);
     }
 
     #[test]
@@ -619,11 +453,11 @@ mod tests {
         let p1 = peer(1);
 
         // Add, remove, add again
-        set.add("alice".to_string(), (p1, 1)).ok();
-        set.remove(&"alice".to_string()).ok();
-        set.add("alice".to_string(), (p1, 2)).ok();  // Different sequence number
+        set.add("alice", (p1, 1)).ok();
+        set.remove(&"alice").ok();
+        set.add("alice", (p1, 2)).ok();  // Different sequence number
 
-        assert!(set.contains(&"alice".to_string()));
+        assert!(set.contains(&"alice"));
     }
 
     #[test]
@@ -633,8 +467,8 @@ mod tests {
         let p1 = peer(1);
         let p2 = peer(2);
 
-        set1.add("alice".to_string(), (p1, 1)).ok();
-        set2.add("bob".to_string(), (p2, 1)).ok();
+        set1.add("alice", (p1, 1)).ok();
+        set2.add("bob", (p2, 1)).ok();
 
         let mut merged_a = set1.clone();
         merged_a.merge_state(&set2).ok();
@@ -644,10 +478,10 @@ mod tests {
 
         // Should converge to same state
         assert_eq!(merged_a.len(), merged_b.len());
-        assert!(merged_a.contains(&"alice".to_string()));
-        assert!(merged_a.contains(&"bob".to_string()));
-        assert!(merged_b.contains(&"alice".to_string()));
-        assert!(merged_b.contains(&"bob".to_string()));
+        assert!(merged_a.contains(&"alice"));
+        assert!(merged_a.contains(&"bob"));
+        assert!(merged_b.contains(&"alice"));
+        assert!(merged_b.contains(&"bob"));
     }
 
     #[test]
@@ -656,8 +490,8 @@ mod tests {
         let mut set2 = OrSet::new();
         let p1 = peer(1);
 
-        set1.add("alice".to_string(), (p1, 1)).ok();
-        set2.add("bob".to_string(), (p1, 2)).ok();
+        set1.add("alice", (p1, 1)).ok();
+        set2.add("bob", (p1, 2)).ok();
 
         set1.merge_state(&set2).ok();
         let len_after_first = set1.len();
@@ -675,13 +509,13 @@ mod tests {
         let p1 = peer(1);
 
         let v0 = set.version();
-        set.add("alice".to_string(), (p1, 1)).ok();
-        set.add("bob".to_string(), (p1, 2)).ok();
+        set.add("alice", (p1, 1)).ok();
+        set.add("bob", (p1, 2)).ok();
 
         let delta = set.delta(v0).expect("should have delta");
         assert_eq!(delta.added.len(), 2);
-        assert!(delta.added.contains_key(&"alice".to_string()));
-        assert!(delta.added.contains_key(&"bob".to_string()));
+        assert!(delta.added.contains_key(&"alice"));
+        assert!(delta.added.contains_key(&"bob"));
     }
 
     #[test]
@@ -691,19 +525,19 @@ mod tests {
         let p1 = peer(1);
         let p2 = peer(2);
 
-        set1.add("alice".to_string(), (p1, 1)).ok();
+        set1.add("alice", (p1, 1)).ok();
 
         let v0 = set2.version();
-        set2.add("bob".to_string(), (p2, 1)).ok();
-        set2.add("charlie".to_string(), (p2, 2)).ok();
+        set2.add("bob", (p2, 1)).ok();
+        set2.add("charlie", (p2, 2)).ok();
 
         // Get delta and merge
         let delta = set2.delta(v0).expect("should have delta");
         set1.merge(&delta).ok();
 
-        assert!(set1.contains(&"alice".to_string()));
-        assert!(set1.contains(&"bob".to_string()));
-        assert!(set1.contains(&"charlie".to_string()));
+        assert!(set1.contains(&"alice"));
+        assert!(set1.contains(&"bob"));
+        assert!(set1.contains(&"charlie"));
     }
 
     // Vector Clock Tests
@@ -834,181 +668,5 @@ mod tests {
 
         assert!(changelog_after <= 10);
         assert!(changelog_after < changelog_before);
-    }
-
-    // Anti-Entropy Manager Tests
-
-    #[tokio::test]
-    async fn test_anti_entropy_manager_creation() {
-        let crdt = std::sync::Arc::new(tokio::sync::RwLock::new(OrSet::<String>::new()));
-        let manager = AntiEntropyManager::new(crdt, 1);
-
-        // Manager should be created successfully
-        let state = manager.get_crdt().await;
-        assert_eq!(state.len(), 0);
-    }
-
-    #[tokio::test]
-    async fn test_anti_entropy_add_remove_peer() {
-        let crdt = std::sync::Arc::new(tokio::sync::RwLock::new(OrSet::<String>::new()));
-        let manager = AntiEntropyManager::new(crdt, 1);
-
-        let p1 = peer(1);
-        let p2 = peer(2);
-
-        // Add peers
-        manager.add_peer(p1).await;
-        manager.add_peer(p2).await;
-
-        // Update versions
-        manager.update_peer_version(p1, 5).await;
-        manager.update_peer_version(p2, 10).await;
-
-        // Verify versions are tracked
-        let versions = manager.peer_versions.read().await;
-        assert_eq!(versions.get(&p1), Some(&5));
-        assert_eq!(versions.get(&p2), Some(&10));
-
-        // Remove peer
-        drop(versions);
-        manager.remove_peer(&p1).await;
-
-        let versions = manager.peer_versions.read().await;
-        assert!(!versions.contains_key(&p1));
-        assert_eq!(versions.get(&p2), Some(&10));
-    }
-
-    #[tokio::test]
-    async fn test_anti_entropy_apply_delta() {
-        let crdt = std::sync::Arc::new(tokio::sync::RwLock::new(OrSet::<String>::new()));
-        let manager = AntiEntropyManager::new(crdt.clone(), 1);
-
-        let p1 = peer(1);
-
-        // Create a delta
-        let mut temp_set = OrSet::new();
-        temp_set.add("alice".to_string(), (p1, 1)).ok();
-        temp_set.add("bob".to_string(), (p1, 2)).ok();
-
-        let delta = temp_set.delta(0).expect("should have delta");
-
-        // Apply delta
-        manager.apply_delta(p1, &delta, 2).await.ok();
-
-        // Verify CRDT state
-        let state = manager.get_crdt().await;
-        assert!(state.contains(&"alice".to_string()));
-        assert!(state.contains(&"bob".to_string()));
-
-        // Verify peer version updated
-        let versions = manager.peer_versions.read().await;
-        assert_eq!(versions.get(&p1), Some(&2));
-    }
-
-    #[tokio::test]
-    async fn test_anti_entropy_periodic_sync() {
-        use std::sync::atomic::{AtomicUsize, Ordering};
-
-        let crdt = std::sync::Arc::new(tokio::sync::RwLock::new(OrSet::<String>::new()));
-        let manager = AntiEntropyManager::new(crdt.clone(), 1); // 1 second interval
-
-        let p1 = peer(1);
-        manager.add_peer(p1).await;
-
-        // Add some data to CRDT
-        {
-            let mut crdt_lock = crdt.write().await;
-            crdt_lock.add("test".to_string(), (p1, 1)).ok();
-        }
-
-        // Track sync calls
-        let sync_count = std::sync::Arc::new(AtomicUsize::new(0));
-        let sync_count_clone = sync_count.clone();
-
-        // Start syncing
-        manager.start(move |peer_id, delta: <OrSet<String> as DeltaCrdt>::Delta| {
-            let count = sync_count_clone.clone();
-            Box::pin(async move {
-                count.fetch_add(1, Ordering::SeqCst);
-                // Verify we got the right peer
-                assert_eq!(peer_id, peer(1));
-                // Verify delta has our element
-                assert!(delta.added.contains_key(&"test".to_string()));
-                Ok(())
-            })
-        }).await.ok();
-
-        // Wait for at least 2 sync intervals
-        tokio::time::sleep(tokio::time::Duration::from_millis(2100)).await;
-
-        // Stop syncing
-        manager.stop().await.ok();
-
-        // Should have synced at least once
-        assert!(sync_count.load(Ordering::SeqCst) >= 1);
-    }
-
-    #[tokio::test]
-    async fn test_anti_entropy_shutdown() {
-        let crdt = std::sync::Arc::new(tokio::sync::RwLock::new(OrSet::<String>::new()));
-        let manager = AntiEntropyManager::new(crdt, 1);
-
-        // Start syncing
-        manager.start(|_peer_id, _delta: <OrSet<String> as DeltaCrdt>::Delta| {
-            Box::pin(async { Ok(()) })
-        }).await.ok();
-
-        // Stop should complete within timeout
-        let result = manager.stop().await;
-        assert!(result.is_ok());
-
-        // Second stop should be idempotent
-        let result = manager.stop().await;
-        assert!(result.is_ok());
-    }
-
-    #[tokio::test]
-    async fn test_anti_entropy_multi_peer_sync() {
-        let crdt = std::sync::Arc::new(tokio::sync::RwLock::new(OrSet::<String>::new()));
-        let manager = AntiEntropyManager::new(crdt.clone(), 1);
-
-        let p1 = peer(1);
-        let p2 = peer(2);
-        let p3 = peer(3);
-
-        manager.add_peer(p1).await;
-        manager.add_peer(p2).await;
-        manager.add_peer(p3).await;
-
-        // Add data
-        {
-            let mut crdt_lock = crdt.write().await;
-            crdt_lock.add("elem1".to_string(), (p1, 1)).ok();
-            crdt_lock.add("elem2".to_string(), (p1, 2)).ok();
-            crdt_lock.add("elem3".to_string(), (p1, 3)).ok();
-        }
-
-        // Track which peers got synced
-        let synced_peers = std::sync::Arc::new(tokio::sync::Mutex::new(HashSet::new()));
-        let synced_peers_clone = synced_peers.clone();
-
-        manager.start(move |peer_id, _delta: <OrSet<String> as DeltaCrdt>::Delta| {
-            let peers = synced_peers_clone.clone();
-            Box::pin(async move {
-                peers.lock().await.insert(peer_id);
-                Ok(())
-            })
-        }).await.ok();
-
-        // Wait for sync
-        tokio::time::sleep(tokio::time::Duration::from_millis(1100)).await;
-
-        manager.stop().await.ok();
-
-        // All peers should have been synced
-        let peers = synced_peers.lock().await;
-        assert!(peers.contains(&p1));
-        assert!(peers.contains(&p2));
-        assert!(peers.contains(&p3));
     }
 }

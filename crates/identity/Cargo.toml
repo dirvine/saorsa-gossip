@@ -10,11 +10,16 @@ keywords = ["post-quantum", "ml-dsa", "identity", "cryptography", "pqc"]
 categories = ["cryptography"]
 
 [dependencies]
-saorsa-gossip-types = { version = "0.1.0", path = "../types" }
+saorsa-gossip-types = { version = "0.1.1", path = "../types" }
 anyhow = { workspace = true }
 serde = { workspace = true }
 blake3 = { workspace = true }
 saorsa-pqc = { workspace = true }
+bincode = { workspace = true }
+tokio = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
+tokio = { workspace = true }
+tokio-test = { workspace = true }
+tempfile = "3.0"
