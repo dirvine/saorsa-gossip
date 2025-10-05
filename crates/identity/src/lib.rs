@@ -47,7 +47,7 @@ impl MlDsaKeyPair {
     }
 
     /// Get saorsa-pqc secret key type
-    fn get_secret_key_typed(&self) -> Result<saorsa_pqc::MlDsaSecretKey> {
+    pub fn get_secret_key_typed(&self) -> Result<saorsa_pqc::MlDsaSecretKey> {
         Ok(saorsa_pqc::MlDsaSecretKey::from_bytes(&self.secret_key)?)
     }
 
@@ -89,6 +89,16 @@ impl MlDsaKeyPair {
         let sig = MlDsaSignature::from_bytes(signature)?;
 
         Ok(verifier.verify(&pk, message, &sig)?)
+    }
+
+    /// Serialize key pair to bytes using bincode
+    pub fn to_bytes(&self) -> Result<Vec<u8>> {
+        bincode::serialize(self).context("Failed to serialize keypair")
+    }
+
+    /// Deserialize key pair from bytes using bincode
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
+        bincode::deserialize(bytes).context("Failed to deserialize keypair")
     }
 }
 
