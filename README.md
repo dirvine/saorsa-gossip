@@ -64,7 +64,7 @@ Saorsa Gossip implements a complete gossip overlay with:
 - **Local-First CRDTs**: Delta-CRDTs with anti-entropy synchronization
 - **No DHT**: Contact-graph-based discovery, no global directory
 
-**Status**: ✅ **Production-Ready v0.1.6** - Complete post-quantum cryptography, deployable coordinator binary, 192 tests passing, zero compilation warnings (see [SPEC2.md](SPEC2.md))
+**Status**: ✅ **Production-Ready v0.1.6** - Complete post-quantum cryptography, deployable coordinator binary, 192 tests passing, zero compilation warnings (see [DESIGN.md](DESIGN.md))
 
 ## 🏗️ Architecture
 
@@ -641,4 +641,4 @@ Inspired by:
 
 **Next Steps**: Advanced features (IBLT reconciliation, peer scoring), production hardening (security audit, 100-node testing), and Saorsa Sites implementation.
 
-See [SPEC2.md](SPEC2.md) for the complete technical specification and implementation roadmap.
+See [DESIGN.md](DESIGN.md) for the complete technical specification and implementation roadmap.
