@@ -1,5 +1,5 @@
 [package]
-name = "saorsa-gossip-bin-coordinator"
+name = "saorsa-coordinator"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -10,7 +10,7 @@ keywords = ["gossip", "p2p", "post-quantum", "networking", "coordinator"]
 categories = ["network-programming", "command-line-utilities"]
 
 [[bin]]
-name = "saorsa-coordinator"
+name = "saorsa-gossip-coordinator"
 path = "src/main.rs"
 
 [dependencies]
@@ -28,10 +28,14 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # Crypto
 saorsa-pqc = { workspace = true }
 
+# Transport
+ant-quic = { workspace = true }
+bytes = { workspace = true }
+
 # Workspace crates
-saorsa-gossip-types = { version = "0.1.4", path = "../../crates/types" }
-saorsa-gossip-identity = { version = "0.1.4", path = "../../crates/identity" }
-saorsa-gossip-transport = { version = "0.1.4", path = "../../crates/transport" }
-saorsa-gossip-coordinator = { version = "0.1.4", path = "../../crates/coordinator" }
-saorsa-gossip-membership = { version = "0.1.4", path = "../../crates/membership" }
-saorsa-gossip-pubsub = { version = "0.1.4", path = "../../crates/pubsub" }
+saorsa-gossip-types = { version = "0.1.6", path = "../../crates/types" }
+saorsa-gossip-identity = { version = "0.1.6", path = "../../crates/identity" }
+saorsa-gossip-transport = { version = "0.1.6", path = "../../crates/transport" }
+saorsa-gossip-coordinator = { version = "0.1.6", path = "../../crates/coordinator" }
+saorsa-gossip-membership = { version = "0.1.6", path = "../../crates/membership" }
+saorsa-gossip-pubsub = { version = "0.1.6", path = "../../crates/pubsub" }

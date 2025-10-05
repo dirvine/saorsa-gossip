@@ -78,9 +78,23 @@ async fn main() -> Result<()> {
         .await?;
     }
 
+    // 3. Start transport and message handling
+    tracing::info!("Initializing transport on {}...", args.bind);
+    let transport = saorsa_gossip_transport::AntQuicTransport::new(
+        args.bind,
+        ant_quic::nat_traversal_api::EndpointRole::Bootstrap,
+        vec![], // Bootstrap nodes don't need other bootstrap addresses
+    )
+    .await?;
+
+    tracing::info!(
+        "Transport initialized - PeerId: {}",
+        hex::encode(transport.peer_id().as_bytes())
+    );
+
     if coordinator_roles.reflector {
         tracing::info!("Reflector role enabled (address observation)");
-        // Address reflection is handled by ant-quic transport automatically
+        // Address reflection is handled by responding to PING messages
     }
 
     if coordinator_roles.relay {
@@ -94,6 +108,14 @@ async fn main() -> Result<()> {
     }
 
     tracing::info!("Coordinator node running. Press Ctrl+C to stop.");
+
+    // 4. Start message handling loop
+    let transport = std::sync::Arc::new(transport);
+    let transport_clone = transport.clone();
+
+    tokio::spawn(async move {
+        handle_messages(transport_clone).await;
+    });
 
     // 3. Wait for shutdown signal
     tokio::signal::ctrl_c().await?;
@@ -225,6 +247,65 @@ impl From<CoordinatorRoles> for saorsa_gossip_coordinator::CoordinatorRoles {
             reflector: roles.reflector,
             rendezvous: roles.rendezvous,
             relay: roles.relay,
+        }
+    }
+}
+
+/// Handle incoming messages from peers
+async fn handle_messages(transport: std::sync::Arc<saorsa_gossip_transport::AntQuicTransport>) {
+    use saorsa_gossip_transport::GossipTransport;
+
+    tracing::info!("Message handler started - listening for PING messages...");
+
+    loop {
+        match transport.receive_message().await {
+            Ok((peer_id, stream_type, data)) => {
+                tracing::debug!(
+                    "Received message from peer {} on {:?} stream ({} bytes)",
+                    hex::encode(peer_id.as_bytes()),
+                    stream_type,
+                    data.len()
+                );
+
+                // Check if this is a PING message
+                if data.as_ref() == b"PING" {
+                    tracing::info!(
+                        "📡 PING received from peer {}",
+                        hex::encode(peer_id.as_bytes())
+                    );
+
+                    // Send PONG response
+                    let pong_data = bytes::Bytes::from_static(b"PONG");
+                    match transport
+                        .send_to_peer(peer_id, stream_type, pong_data)
+                        .await
+                    {
+                        Ok(_) => {
+                            tracing::info!(
+                                "✓ PONG sent to peer {}",
+                                hex::encode(peer_id.as_bytes())
+                            );
+                        }
+                        Err(e) => {
+                            tracing::error!(
+                                "❌ Failed to send PONG to peer {}: {}",
+                                hex::encode(peer_id.as_bytes()),
+                                e
+                            );
+                        }
+                    }
+                } else {
+                    tracing::debug!(
+                        "Received non-PING message: {}",
+                        String::from_utf8_lossy(&data)
+                    );
+                }
+            }
+            Err(e) => {
+                tracing::error!("Error receiving message: {}", e);
+                // Continue listening even on errors
+                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            }
         }
     }
 }

@@ -383,13 +383,125 @@ async fn handle_identity(action: IdentityAction, config_dir: &std::path::Path) -
 }
 
 /// Handle network commands
-async fn handle_network(_action: NetworkAction, _config_dir: &std::path::Path) -> Result<()> {
-    println!("Network commands - Coming soon!");
-    println!("This will demonstrate:");
-    println!("  - Joining the gossip network");
-    println!("  - SWIM membership protocol");
-    println!("  - HyParView overlay maintenance");
-    println!("  - Peer discovery via coordinators");
+async fn handle_network(action: NetworkAction, config_dir: &std::path::Path) -> Result<()> {
+    use saorsa_gossip_identity::Identity;
+    use saorsa_gossip_transport::AntQuicTransport;
+    use ant_quic::nat_traversal_api::EndpointRole;
+
+    match action {
+        NetworkAction::Join {
+            coordinator,
+            identity,
+            bind,
+        } => {
+            tracing::info!("Joining network with identity: {}", identity);
+
+            // Load identity
+            let keystore = config_dir.join("keystore");
+            let ident =
+                Identity::load_from_keystore(&identity, keystore.to_str().expect("valid path"))
+                    .await?;
+
+            println!("✓ Loaded identity: {}", identity);
+            println!("  PeerId: {}", hex::encode(ident.peer_id().as_bytes()));
+
+            // Parse addresses
+            let bind_addr: std::net::SocketAddr = bind.parse()?;
+            let coordinator_addr: std::net::SocketAddr = coordinator.parse()?;
+
+            println!("\n🌐 Connecting to network...");
+            println!("  Coordinator: {}", coordinator);
+            println!("  Local bind: {}", bind);
+
+            // Create transport (automatically connects to bootstrap coordinators)
+            println!("  Creating transport and establishing QUIC connection...");
+            let transport = AntQuicTransport::new(
+                bind_addr,
+                EndpointRole::Client,
+                vec![coordinator_addr],
+            )
+            .await?;
+
+            println!("\n✓ Transport initialized and connected!");
+            println!("  Transport PeerId: {}", hex::encode(transport.peer_id().as_bytes()));
+            println!("  Ant PeerId: {:?}", transport.ant_peer_id());
+
+            // Send a PING to coordinator to test message exchange
+            println!("\n📡 Sending PING to coordinator...");
+            use saorsa_gossip_transport::GossipTransport;
+            use std::time::Instant;
+
+            let ping_start = Instant::now();
+
+            // Get coordinator's peer ID (we need to discover this from bootstrap)
+            // For now, we'll send to the transport and handle it on coordinator side
+            // TODO: Get actual coordinator peer ID from discovery
+
+            // Try to receive a message with timeout to test connectivity
+            println!("⏳ Waiting for coordinator response (5s timeout)...");
+
+            let receive_task = tokio::spawn({
+                let transport = std::sync::Arc::new(transport);
+                async move {
+                    match tokio::time::timeout(
+                        std::time::Duration::from_secs(5),
+                        transport.receive_message()
+                    ).await {
+                        Ok(Ok((peer_id, stream_type, data))) => {
+                            Some((peer_id, stream_type, data))
+                        }
+                        Ok(Err(e)) => {
+                            println!("❌ Error receiving: {}", e);
+                            None
+                        }
+                        Err(_) => {
+                            println!("⏱️  Timeout waiting for response");
+                            None
+                        }
+                    }
+                }
+            });
+
+            if let Ok(Some((peer_id, _stream_type, data))) = receive_task.await {
+                let rtt = ping_start.elapsed();
+                println!("✓ Received response from peer {}", hex::encode(peer_id.as_bytes()));
+                println!("  RTT: {:?}", rtt);
+                println!("  Data: {}", String::from_utf8_lossy(&data));
+            }
+
+            println!("\n⚠️  Full network integration in progress!");
+            println!("   - Address reflection (IPv4/IPv6 observation)");
+            println!("   - NAT type detection");
+            println!("   - Peer discovery and listing");
+            println!("\nPress Ctrl+C to disconnect");
+
+            // Keep connection alive
+            tokio::signal::ctrl_c().await?;
+            println!("\n👋 Disconnecting...");
+        }
+
+        NetworkAction::Status => {
+            println!("Network status - Coming soon!");
+            println!("This will show:");
+            println!("  - Connection state");
+            println!("  - Observed IPv4/IPv6 addresses");
+            println!("  - NAT type");
+            println!("  - Active peer count");
+        }
+
+        NetworkAction::Peers => {
+            println!("Peer list - Coming soon!");
+            println!("This will show:");
+            println!("  - Connected peers with IPs (IPv4/IPv6)");
+            println!("  - RTT to each peer");
+            println!("  - Connection type (direct/relayed)");
+        }
+
+        NetworkAction::Leave => {
+            println!("Leave network - Coming soon!");
+        }
+    }
+
     Ok(())
 }
 

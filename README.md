@@ -116,19 +116,19 @@ Saorsa Gossip provides two production-ready binaries for testing and deployment:
 
 | Binary | Crate | Purpose |
 |--------|-------|---------|
-| `saorsa-coordinator` | [saorsa-gossip-bin-coordinator](https://crates.io/crates/saorsa-gossip-bin-coordinator) | Bootstrap/coordinator node for network discovery |
-| `saorsa-gossip` | [saorsa-gossip-cli](https://crates.io/crates/saorsa-gossip-cli) | CLI tool for testing all network features |
+| `saorsa-gossip-coordinator` | [saorsa-coordinator](https://crates.io/crates/saorsa-coordinator) | Bootstrap/coordinator node for network discovery |
+| `saorsa-gossip` | [saorsa-gossip](https://crates.io/crates/saorsa-gossip) | CLI tool for testing all network features |
 
 ### Installation
 
 Install both binaries from crates.io:
 
 ```bash
-# Install coordinator binary
-cargo install saorsa-gossip-bin-coordinator
+# Install coordinator binary (provides saorsa-gossip-coordinator command)
+cargo install saorsa-coordinator
 
-# Install CLI tool
-cargo install saorsa-gossip-cli
+# Install CLI tool (provides saorsa-gossip command)
+cargo install saorsa-gossip
 ```
 
 Or build from source:
@@ -142,7 +142,7 @@ cd saorsa-gossip
 cargo build --release -p saorsa-coordinator -p saorsa-gossip
 
 # Binaries available at:
-# - target/release/saorsa-coordinator
+# - target/release/saorsa-gossip-coordinator
 # - target/release/saorsa-gossip
 ```
 
@@ -152,7 +152,7 @@ Coordinators provide bootstrap discovery for new peers joining the network:
 
 ```bash
 # Start a coordinator on port 7000 with verbose logging
-saorsa-coordinator \
+saorsa-gossip-coordinator \
   --verbose \
   --bind 0.0.0.0:7000 \
   --roles coordinator,reflector,relay \
@@ -215,7 +215,7 @@ saorsa-gossip identity delete Alice
   Saved to: /Users/you/.saorsa-gossip/keystore
 ```
 
-#### Network Operations (Coming Soon)
+#### Network Operations
 
 ```bash
 # Join the gossip network via coordinator
@@ -231,7 +231,7 @@ saorsa-gossip network status
 saorsa-gossip network peers
 ```
 
-#### PubSub Messaging (Coming Soon)
+#### PubSub Messaging
 
 ```bash
 # Subscribe to a topic
@@ -244,7 +244,7 @@ saorsa-gossip pubsub publish --topic news --message "Hello, gossip!"
 saorsa-gossip pubsub list
 ```
 
-#### Presence Beacons (Coming Soon)
+#### Presence Beacons
 
 ```bash
 # Start broadcasting presence

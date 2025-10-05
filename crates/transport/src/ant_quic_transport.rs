@@ -92,16 +92,59 @@ impl AntQuicTransport {
         let (recv_tx, recv_rx) = mpsc::unbounded_channel();
 
         let transport = Self {
-            node,
+            node: Arc::clone(&node),
             recv_tx,
             recv_rx: Arc::new(tokio::sync::Mutex::new(recv_rx)),
             ant_peer_id,
             gossip_peer_id,
-            bootstrap_nodes,
+            bootstrap_nodes: bootstrap_nodes.clone(),
         };
 
         // Start receiving loop
         transport.spawn_receiver();
+
+        // If this is a Client node with bootstrap coordinators, establish connections
+        if matches!(role, EndpointRole::Client) && !bootstrap_nodes.is_empty() {
+            info!(
+                "Client role detected - establishing connections to {} bootstrap coordinator(s)...",
+                bootstrap_nodes.len()
+            );
+
+            let mut connected_count = 0;
+            for bootstrap_addr in &bootstrap_nodes {
+                info!("Connecting to bootstrap coordinator at {}...", bootstrap_addr);
+
+                match node.connect_to_bootstrap(*bootstrap_addr).await {
+                    Ok(coordinator_peer_id) => {
+                        info!(
+                            "✓ Connected to bootstrap coordinator {} (PeerId: {:?})",
+                            bootstrap_addr, coordinator_peer_id
+                        );
+                        connected_count += 1;
+                    }
+                    Err(e) => {
+                        warn!(
+                            "Failed to connect to bootstrap coordinator {}: {}",
+                            bootstrap_addr, e
+                        );
+                        // Continue trying other bootstrap nodes
+                    }
+                }
+            }
+
+            if connected_count == 0 {
+                return Err(anyhow!(
+                    "Failed to connect to any bootstrap coordinators ({} attempted)",
+                    bootstrap_nodes.len()
+                ));
+            }
+
+            info!(
+                "✓ Successfully connected to {}/{} bootstrap coordinator(s)",
+                connected_count,
+                bootstrap_nodes.len()
+            );
+        }
 
         Ok(transport)
     }
@@ -114,6 +157,19 @@ impl AntQuicTransport {
     /// Get local ant-quic peer ID
     pub fn ant_peer_id(&self) -> AntPeerId {
         self.ant_peer_id
+    }
+
+    /// Get list of connected peers
+    ///
+    /// Returns a vector of (PeerId, SocketAddr) tuples for all currently connected peers.
+    pub async fn connected_peers(&self) -> Vec<(GossipPeerId, SocketAddr)> {
+        // Access the QuicP2PNode's connected_peers map
+        // Note: We're using reflection on the internal structure since there's no public API
+        // This is a temporary solution until ant-quic provides a proper getter
+
+        // For now, return empty vec - we'll track connections via send_to_peer success
+        // TODO: Add proper API to QuicP2PNode to query connected peers
+        Vec::new()
     }
 
     /// Spawn background task to receive incoming messages
