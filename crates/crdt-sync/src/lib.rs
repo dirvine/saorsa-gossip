@@ -45,7 +45,7 @@ pub type UniqueTag = (PeerId, u64);
 /// Production-ready OR-Set (Observed-Remove Set)
 ///
 /// Properly handles concurrent add/remove operations from multiple replicas.
-/// Uses (element, Set<UniqueTag>) to track all concurrent adds.
+/// Uses (element, Set\<UniqueTag\>) to track all concurrent adds.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OrSet<T: Hash + Eq + Clone> {
     /// Elements with their unique tags (peer_id, seq) per concurrent add

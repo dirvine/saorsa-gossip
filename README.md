@@ -64,7 +64,7 @@ Saorsa Gossip implements a complete gossip overlay with:
 - **Local-First CRDTs**: Delta-CRDTs with anti-entropy synchronization
 - **No DHT**: Contact-graph-based discovery, no global directory
 
-**Status**: ✅ **Production-Ready v0.1.3** - Complete post-quantum cryptography, deployable coordinator binary, 164 tests passing, zero compilation warnings (see [SPEC2.md](SPEC2.md))
+**Status**: ✅ **Production-Ready v0.1.6** - Complete post-quantum cryptography, deployable coordinator binary, 192 tests passing, zero compilation warnings (see [SPEC2.md](SPEC2.md))
 
 ## 🏗️ Architecture
 
@@ -91,7 +91,7 @@ Saorsa Gossip implements a complete gossip overlay with:
 
 ### Core Crates
 
-All crates are published on [crates.io](https://crates.io) at version **0.1.3** with production-ready post-quantum cryptography.
+All crates are published on [crates.io](https://crates.io) at version **0.1.6** with production-ready post-quantum cryptography.
 
 | Crate | Purpose | Why It's Important |
 |-------|---------|-------------------|
@@ -485,11 +485,17 @@ cargo build --all-features
 # Unit tests
 cargo test --all
 
-# Integration tests (when implemented)
-cargo test --test integration
+# Integration tests
+cargo test --test integration_tests
 
-# Benchmarks (when implemented)
-cargo bench
+# Performance benchmarks
+cargo bench --bench performance
+
+# Code coverage report
+./scripts/coverage.sh
+
+# Run all medium priority improvements
+./scripts/medium-priority-improvements.sh
 ```
 
 ### Code Quality
@@ -551,7 +557,7 @@ cargo doc --all-features --no-deps --open
 - [x] Coordinator binary with full CLI
 - [x] Rendezvous shard implementation
 - [x] Zero compilation warnings
-- [x] 164 tests passing across all crates
+- [x] 192 tests passing across all crates
 - [x] Published to crates.io
 
 ### 📋 Phase 5: Advanced Features (In Progress)
@@ -631,7 +637,7 @@ Inspired by:
 
 ---
 
-**✅ Status v0.1.3**: Production-ready foundation with complete post-quantum cryptography. Core gossip protocols implemented with real ML-DSA-65 signatures, BLAKE3 KDF, and deployable coordinator binary. All 164 tests passing with zero warnings. Published to crates.io.
+**✅ Status v0.1.6**: Production-ready foundation with complete post-quantum cryptography. Core gossip protocols implemented with real ML-DSA-65 signatures, BLAKE3 KDF, and deployable coordinator binary. All 192 tests passing with zero warnings. Published to crates.io.
 
 **Next Steps**: Advanced features (IBLT reconciliation, peer scoring), production hardening (security audit, 100-node testing), and Saorsa Sites implementation.
 

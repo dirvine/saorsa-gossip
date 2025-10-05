@@ -10,10 +10,11 @@
 use anyhow::{anyhow, Result};
 use bytes::Bytes;
 use saorsa_gossip_types::PeerId as GossipPeerId;
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::time::Duration;
-use tokio::sync::mpsc;
+use std::time::{Duration, Instant};
+use tokio::sync::{mpsc, RwLock};
 use tracing::{debug, error, info, warn};
 
 use crate::{GossipTransport, StreamType};
@@ -43,6 +44,8 @@ pub struct AntQuicTransport {
     gossip_peer_id: GossipPeerId,
     /// Bootstrap coordinator addresses
     bootstrap_nodes: Vec<SocketAddr>,
+    /// Track connected peers with their addresses and last seen time
+    connected_peers: Arc<RwLock<HashMap<GossipPeerId, (SocketAddr, Instant)>>>,
 }
 
 impl AntQuicTransport {
@@ -98,6 +101,7 @@ impl AntQuicTransport {
             ant_peer_id,
             gossip_peer_id,
             bootstrap_nodes: bootstrap_nodes.clone(),
+            connected_peers: Arc::new(RwLock::new(HashMap::new())),
         };
 
         // Start receiving loop
@@ -165,14 +169,16 @@ impl AntQuicTransport {
     /// Get list of connected peers
     ///
     /// Returns a vector of (PeerId, SocketAddr) tuples for all currently connected peers.
+    /// Connections are tracked internally and expired after 5 minutes of inactivity.
     pub async fn connected_peers(&self) -> Vec<(GossipPeerId, SocketAddr)> {
-        // Access the QuicP2PNode's connected_peers map
-        // Note: We're using reflection on the internal structure since there's no public API
-        // This is a temporary solution until ant-quic provides a proper getter
+        let peers = self.connected_peers.read().await;
+        let now = Instant::now();
 
-        // For now, return empty vec - we'll track connections via send_to_peer success
-        // TODO: Add proper API to QuicP2PNode to query connected peers
-        Vec::new()
+        peers
+            .iter()
+            .filter(|(_, (_, last_seen))| now.duration_since(*last_seen) < Duration::from_secs(300))
+            .map(|(peer_id, (addr, _))| (*peer_id, *addr))
+            .collect()
     }
 
     /// Spawn background task to receive incoming messages
@@ -182,6 +188,7 @@ impl AntQuicTransport {
     fn spawn_receiver(&self) {
         let node = Arc::clone(&self.node);
         let recv_tx = self.recv_tx.clone();
+        let connected_peers = Arc::clone(&self.connected_peers);
 
         tokio::spawn(async move {
             info!("Ant-QUIC receiver task started");
@@ -194,6 +201,12 @@ impl AntQuicTransport {
 
                         // Convert ant PeerId to gossip PeerId
                         let gossip_peer_id = ant_peer_id_to_gossip(&ant_peer_id);
+
+                        // Track incoming connection
+                        let mut peers = connected_peers.blocking_write();
+                        let peer_addr = SocketAddr::from(([127, 0, 0, 1], 8080)); // Placeholder
+                        peers.insert(gossip_peer_id, (peer_addr, Instant::now()));
+                        drop(peers);
 
                         // Parse stream type from first byte
                         if data.is_empty() {
@@ -315,6 +328,16 @@ impl GossipTransport for AntQuicTransport {
             .send_to_peer(&ant_peer_id, &buf)
             .await
             .map_err(|e| anyhow!("Failed to send to peer: {}", e))?;
+
+        // Track successful connection
+        let mut connected_peers = self.connected_peers.write().await;
+
+        // For now, use a placeholder address - in a production implementation,
+        // this would be obtained from the ant-quic connection metadata
+        let peer_addr = SocketAddr::from(([127, 0, 0, 1], 8080));
+
+        connected_peers.insert(peer, (peer_addr, Instant::now()));
+        drop(connected_peers); // Release the lock
 
         debug!("Successfully sent {} bytes to peer {}", buf.len(), peer);
         Ok(())

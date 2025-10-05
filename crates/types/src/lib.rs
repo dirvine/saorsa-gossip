@@ -58,7 +58,7 @@ impl fmt::Display for TopicId {
     }
 }
 
-/// 32-byte peer identifier: BLAKE3(ML-DSA pubkey)[:32]
+/// 32-byte peer identifier: BLAKE3(ML-DSA pubkey)\[:32\]
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct PeerId([u8; 32]);
 
@@ -147,14 +147,14 @@ impl MessageKind {
 }
 
 /// Wire format header for control frames (ML-DSA signed)
-/// Format: ver:u8, topic:[u8;32], msg_id:[u8;32], kind:u8, hop:u8, ttl:u8
+/// Format: ver:u8, topic:\[u8;32\], msg_id:\[u8;32\], kind:u8, hop:u8, ttl:u8
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MessageHeader {
     /// Protocol version
     pub version: u8,
     /// Topic identifier
     pub topic: TopicId,
-    /// Message ID: BLAKE3(topic || epoch || signer || payload_hash)[:32]
+    /// Message ID: BLAKE3(topic || epoch || signer || payload_hash)\[:32\]
     pub msg_id: [u8; 32],
     /// Message kind
     pub kind: MessageKind,
