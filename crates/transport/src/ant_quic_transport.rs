@@ -112,7 +112,10 @@ impl AntQuicTransport {
 
             let mut connected_count = 0;
             for bootstrap_addr in &bootstrap_nodes {
-                info!("Connecting to bootstrap coordinator at {}...", bootstrap_addr);
+                info!(
+                    "Connecting to bootstrap coordinator at {}...",
+                    bootstrap_addr
+                );
 
                 match node.connect_to_bootstrap(*bootstrap_addr).await {
                     Ok(coordinator_peer_id) => {

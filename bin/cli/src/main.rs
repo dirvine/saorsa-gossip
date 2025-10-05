@@ -384,9 +384,9 @@ async fn handle_identity(action: IdentityAction, config_dir: &std::path::Path) -
 
 /// Handle network commands
 async fn handle_network(action: NetworkAction, config_dir: &std::path::Path) -> Result<()> {
+    use ant_quic::nat_traversal_api::EndpointRole;
     use saorsa_gossip_identity::Identity;
     use saorsa_gossip_transport::AntQuicTransport;
-    use ant_quic::nat_traversal_api::EndpointRole;
 
     match action {
         NetworkAction::Join {
@@ -415,15 +415,15 @@ async fn handle_network(action: NetworkAction, config_dir: &std::path::Path) -> 
 
             // Create transport (automatically connects to bootstrap coordinators)
             println!("  Creating transport and establishing QUIC connection...");
-            let transport = AntQuicTransport::new(
-                bind_addr,
-                EndpointRole::Client,
-                vec![coordinator_addr],
-            )
-            .await?;
+            let transport =
+                AntQuicTransport::new(bind_addr, EndpointRole::Client, vec![coordinator_addr])
+                    .await?;
 
             println!("\n✓ Transport initialized and connected!");
-            println!("  Transport PeerId: {}", hex::encode(transport.peer_id().as_bytes()));
+            println!(
+                "  Transport PeerId: {}",
+                hex::encode(transport.peer_id().as_bytes())
+            );
             println!("  Ant PeerId: {:?}", transport.ant_peer_id());
 
             // Send a PING to coordinator to test message exchange
@@ -445,11 +445,11 @@ async fn handle_network(action: NetworkAction, config_dir: &std::path::Path) -> 
                 async move {
                     match tokio::time::timeout(
                         std::time::Duration::from_secs(5),
-                        transport.receive_message()
-                    ).await {
-                        Ok(Ok((peer_id, stream_type, data))) => {
-                            Some((peer_id, stream_type, data))
-                        }
+                        transport.receive_message(),
+                    )
+                    .await
+                    {
+                        Ok(Ok((peer_id, stream_type, data))) => Some((peer_id, stream_type, data)),
                         Ok(Err(e)) => {
                             println!("❌ Error receiving: {}", e);
                             None
@@ -464,7 +464,10 @@ async fn handle_network(action: NetworkAction, config_dir: &std::path::Path) -> 
 
             if let Ok(Some((peer_id, _stream_type, data))) = receive_task.await {
                 let rtt = ping_start.elapsed();
-                println!("✓ Received response from peer {}", hex::encode(peer_id.as_bytes()));
+                println!(
+                    "✓ Received response from peer {}",
+                    hex::encode(peer_id.as_bytes())
+                );
                 println!("  RTT: {:?}", rtt);
                 println!("  Data: {}", String::from_utf8_lossy(&data));
             }
