@@ -257,8 +257,9 @@ impl PeerCache {
 
         // Create parent directory if it doesn't exist
         if let Some(parent) = cache_file.parent() {
-            std::fs::create_dir_all(parent)
-                .with_context(|| format!("Failed to create cache directory: {}", parent.display()))?;
+            std::fs::create_dir_all(parent).with_context(|| {
+                format!("Failed to create cache directory: {}", parent.display())
+            })?;
         }
 
         // Load existing cache if available
@@ -298,8 +299,8 @@ impl PeerCache {
         let data = std::fs::read(path)
             .with_context(|| format!("Failed to read cache file: {}", path.display()))?;
 
-        let peers: HashMap<GossipPeerId, CachedPeer> = bincode::deserialize(&data)
-            .context("Failed to deserialize peer cache")?;
+        let peers: HashMap<GossipPeerId, CachedPeer> =
+            bincode::deserialize(&data).context("Failed to deserialize peer cache")?;
 
         info!("Loaded {} peers from cache", peers.len());
         Ok(Arc::new(RwLock::new(peers)))
@@ -431,14 +432,17 @@ impl PeerCache {
 
         let mut viable: Vec<_> = peers
             .values()
-            .filter(|p| !p.is_stale(self.config.max_consecutive_failures, self.config.stale_timeout))
+            .filter(|p| {
+                !p.is_stale(
+                    self.config.max_consecutive_failures,
+                    self.config.stale_timeout,
+                )
+            })
             .map(|p| (p.clone(), p.successful_connections, p.last_seen))
             .collect();
 
         // Sort by success count (descending) then by last_seen (descending)
-        viable.sort_by(|a, b| {
-            b.1.cmp(&a.1).then_with(|| b.2.cmp(&a.2))
-        });
+        viable.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| b.2.cmp(&a.2)));
 
         viable
             .into_iter()
@@ -453,7 +457,12 @@ impl PeerCache {
         let total_peers = peers.len();
         let viable_peers = peers
             .values()
-            .filter(|p| !p.is_stale(self.config.max_consecutive_failures, self.config.stale_timeout))
+            .filter(|p| {
+                !p.is_stale(
+                    self.config.max_consecutive_failures,
+                    self.config.stale_timeout,
+                )
+            })
             .count();
 
         PeerCacheStats {
@@ -648,6 +657,9 @@ mod tests {
         let cache = PeerCache::new(config).expect("Failed to create cache");
         let stats = cache.stats().await;
 
-        assert!(stats.cache_file.to_string_lossy().contains("test_custom.bin"));
+        assert!(stats
+            .cache_file
+            .to_string_lossy()
+            .contains("test_custom.bin"));
     }
 }

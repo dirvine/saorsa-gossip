@@ -7,7 +7,15 @@ use saorsa_gossip_types::PeerId;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
+use std::time::{Duration, SystemTime};
+
+fn unix_time_millis() -> u64 {
+    match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
+        Ok(duration) => duration.as_millis() as u64,
+        Err(_) => Duration::ZERO.as_millis() as u64,
+    }
+}
 
 /// Peer cache entry per SPEC2 §7.2
 ///
@@ -53,10 +61,7 @@ impl PeerCacheEntry {
         nat_class: NatClass,
         roles: PeerRoles,
     ) -> Self {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system time before unix epoch")
-            .as_millis() as u64;
+        let now = unix_time_millis();
 
         Self {
             peer_id,
@@ -83,19 +88,12 @@ impl PeerCacheEntry {
 
     /// Update last success timestamp
     pub fn mark_success(&mut self) {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system time before unix epoch")
-            .as_millis() as u64;
-        self.last_success = now;
+        self.last_success = unix_time_millis();
     }
 
     /// Check if entry is recent (within last 24 hours)
     pub fn is_recent(&self) -> bool {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system time before unix epoch")
-            .as_millis() as u64;
+        let now = unix_time_millis();
 
         now - self.last_success < 24 * 3600 * 1000 // 24 hours in ms
     }
@@ -114,26 +112,35 @@ impl PeerCache {
         }
     }
 
+    fn lock_entries(&self) -> Option<MutexGuard<'_, HashMap<PeerId, PeerCacheEntry>>> {
+        self.entries.lock().ok()
+    }
+
     /// Insert or update a peer cache entry
     pub fn insert(&self, entry: PeerCacheEntry) {
-        let mut entries = self.entries.lock().expect("lock poisoned");
-        entries.insert(entry.peer_id, entry);
+        if let Some(mut entries) = self.lock_entries() {
+            entries.insert(entry.peer_id, entry);
+        }
     }
 
     /// Get a peer cache entry by ID
     pub fn get(&self, peer_id: &PeerId) -> Option<PeerCacheEntry> {
-        let entries = self.entries.lock().expect("lock poisoned");
-        entries.get(peer_id).cloned()
+        self.lock_entries()
+            .and_then(|entries| entries.get(peer_id).cloned())
     }
 
     /// Get all coordinators, sorted by recency
     pub fn get_coordinators(&self) -> Vec<PeerCacheEntry> {
-        let entries = self.entries.lock().expect("lock poisoned");
-        let mut coordinators: Vec<_> = entries
-            .values()
-            .filter(|entry| entry.roles.coordinator)
-            .cloned()
-            .collect();
+        let mut coordinators = self
+            .lock_entries()
+            .map(|entries| {
+                entries
+                    .values()
+                    .filter(|entry| entry.roles.coordinator)
+                    .cloned()
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
 
         // Sort by last_success descending (most recent first)
         coordinators.sort_by(|a, b| b.last_success.cmp(&a.last_success));
@@ -145,21 +152,24 @@ impl PeerCache {
         &self,
         role_filter: impl Fn(&PeerCacheEntry) -> bool,
     ) -> Vec<PeerCacheEntry> {
-        let entries = self.entries.lock().expect("lock poisoned");
-        entries
-            .values()
-            .filter(|entry| role_filter(entry))
-            .cloned()
-            .collect()
+        self.lock_entries()
+            .map(|entries| {
+                entries
+                    .values()
+                    .filter(|entry| role_filter(entry))
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     /// Prune old entries (older than 7 days)
     pub fn prune_old(&self) -> usize {
-        let mut entries = self.entries.lock().expect("lock poisoned");
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system time")
-            .as_millis() as u64;
+        let mut entries = match self.lock_entries() {
+            Some(guard) => guard,
+            None => return 0,
+        };
+        let now = unix_time_millis();
 
         let cutoff = now - (7 * 24 * 3600 * 1000); // 7 days in ms
 
@@ -178,8 +188,9 @@ impl PeerCache {
 
     /// Get the number of entries in the cache
     pub fn len(&self) -> usize {
-        let entries = self.entries.lock().expect("lock poisoned");
-        entries.len()
+        self.lock_entries()
+            .map(|entries| entries.len())
+            .unwrap_or(0)
     }
 
     /// Check if the cache is empty
@@ -189,8 +200,9 @@ impl PeerCache {
 
     /// Clear all entries
     pub fn clear(&self) {
-        let mut entries = self.entries.lock().expect("lock poisoned");
-        entries.clear();
+        if let Some(mut entries) = self.lock_entries() {
+            entries.clear();
+        }
     }
 
     /// Save the peer cache to disk in CBOR format
@@ -226,8 +238,10 @@ impl PeerCache {
         file.lock_exclusive()?;
 
         // Serialize entries to CBOR
-        let entries = self.entries.lock().expect("lock poisoned");
-        let entries_vec: Vec<PeerCacheEntry> = entries.values().cloned().collect();
+        let entries_vec: Vec<PeerCacheEntry> = self
+            .lock_entries()
+            .map(|entries| entries.values().cloned().collect())
+            .unwrap_or_default();
 
         let mut writer = std::io::BufWriter::new(file);
         ciborium::into_writer(&entries_vec, &mut writer)?;
@@ -297,6 +311,7 @@ impl Clone for PeerCache {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
     use super::*;
 

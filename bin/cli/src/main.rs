@@ -21,7 +21,7 @@
 //! saorsa-gossip pubsub publish --topic news --message "Hello World"
 //! ```
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
@@ -314,9 +314,8 @@ async fn handle_identity(action: IdentityAction, config_dir: &std::path::Path) -
 
             // Save to keystore (using alias as four-words for now)
             let keystore = config_dir.join("keystore");
-            identity
-                .save_to_keystore(&alias, keystore.to_str().expect("valid path"))
-                .await?;
+            let keystore_str = path_to_string(&keystore)?;
+            identity.save_to_keystore(&alias, &keystore_str).await?;
 
             println!("✓ Created identity: {}", alias);
             println!("  PeerId: {}", hex::encode(peer_id.as_bytes()));
@@ -356,8 +355,7 @@ async fn handle_identity(action: IdentityAction, config_dir: &std::path::Path) -
             let keystore = config_dir.join("keystore");
 
             let identity =
-                Identity::load_from_keystore(&alias, keystore.to_str().expect("valid path"))
-                    .await?;
+                Identity::load_from_keystore(&alias, &path_to_string(&keystore)?).await?;
 
             println!("Identity: {}", alias);
             println!("  PeerId: {}", hex::encode(identity.peer_id().as_bytes()));
@@ -399,8 +397,7 @@ async fn handle_network(action: NetworkAction, config_dir: &std::path::Path) -> 
             // Load identity
             let keystore = config_dir.join("keystore");
             let ident =
-                Identity::load_from_keystore(&identity, keystore.to_str().expect("valid path"))
-                    .await?;
+                Identity::load_from_keystore(&identity, &path_to_string(&keystore)?).await?;
 
             println!("✓ Loaded identity: {}", identity);
             println!("  PeerId: {}", hex::encode(ident.peer_id().as_bytes()));
@@ -611,7 +608,14 @@ fn expand_path(path: &std::path::Path) -> Result<PathBuf> {
     Ok(PathBuf::from(expanded))
 }
 
+fn path_to_string(path: &std::path::Path) -> Result<String> {
+    path.to_str()
+        .map(str::to_owned)
+        .ok_or_else(|| anyhow!("Path contains invalid UTF-8: {}", path.display()))
+}
+
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
     use super::*;
 

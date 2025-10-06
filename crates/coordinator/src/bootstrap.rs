@@ -6,7 +6,7 @@ use crate::{CoordinatorHandler, FindCoordinatorQuery, PeerCache, PeerCacheEntry}
 use saorsa_gossip_types::PeerId;
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Instant;
 
 /// Traversal method preference order per SPEC2 §7.4
@@ -65,6 +65,10 @@ impl Bootstrap {
         }
     }
 
+    fn pending_queries_guard(&self) -> Option<MutexGuard<'_, HashMap<[u8; 32], Instant>>> {
+        self.pending_queries.lock().ok()
+    }
+
     /// Attempt to find a coordinator to bootstrap from
     ///
     /// Strategy per SPEC2 §7:
@@ -87,8 +91,7 @@ impl Bootstrap {
         let query = FindCoordinatorQuery::new(self.peer_id);
 
         // Track this query
-        {
-            let mut pending = self.pending_queries.lock().expect("lock poisoned");
+        if let Some(mut pending) = self.pending_queries_guard() {
             pending.insert(query.query_id, Instant::now());
         }
 
@@ -168,8 +171,7 @@ impl Bootstrap {
         response: crate::FindCoordinatorResponse,
     ) -> Option<BootstrapAction> {
         // Remove from pending queries
-        {
-            let mut pending = self.pending_queries.lock().expect("lock poisoned");
+        if let Some(mut pending) = self.pending_queries_guard() {
             pending.remove(&response.query_id);
         }
 
@@ -217,7 +219,10 @@ impl Bootstrap {
     /// Per SPEC2 §7.3, queries expire after 30 seconds.
     /// Returns the number of expired queries removed.
     pub fn prune_expired_queries(&self) -> usize {
-        let mut pending = self.pending_queries.lock().expect("lock poisoned");
+        let mut pending = match self.pending_queries_guard() {
+            Some(guard) => guard,
+            None => return 0,
+        };
         let now = Instant::now();
 
         let expired: Vec<_> = pending
@@ -236,6 +241,7 @@ impl Bootstrap {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
     use super::*;
     use crate::{NatClass, PeerRoles};

@@ -5,7 +5,7 @@
 use crate::{AdvertCache, CoordinatorAdvert, FindCoordinatorQuery, FindCoordinatorResponse};
 use saorsa_gossip_types::PeerId;
 use std::collections::HashSet;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 /// Handler for coordinator advertisements and FOAF queries
 pub struct CoordinatorHandler {
@@ -25,6 +25,10 @@ impl CoordinatorHandler {
             cache: AdvertCache::default(),
             seen_queries: Arc::new(Mutex::new(HashSet::new())),
         }
+    }
+
+    fn seen_queries_guard(&self) -> Option<MutexGuard<'_, HashSet<[u8; 32]>>> {
+        self.seen_queries.lock().ok()
     }
 
     /// Get the local peer ID
@@ -65,7 +69,7 @@ impl CoordinatorHandler {
     ) -> Option<FindCoordinatorResponse> {
         // Check if we've seen this query before
         {
-            let mut seen = self.seen_queries.lock().expect("lock poisoned");
+            let mut seen = self.seen_queries_guard()?;
             if seen.contains(&query.query_id) {
                 return None; // Duplicate query
             }
@@ -100,14 +104,16 @@ impl CoordinatorHandler {
         let pruned = self.cache.prune_expired();
 
         // Clear seen queries periodically (they're only valid for 30s anyway)
-        let mut seen = self.seen_queries.lock().expect("lock poisoned");
-        seen.clear();
+        if let Some(mut seen) = self.seen_queries_guard() {
+            seen.clear();
+        }
 
         pruned
     }
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
     use super::*;
     use crate::{CoordinatorRoles, NatClass};

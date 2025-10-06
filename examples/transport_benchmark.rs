@@ -20,7 +20,9 @@
 
 use anyhow::Result;
 use bytes::Bytes;
-use saorsa_gossip_transport::{AntQuicTransport, GossipTransport, PeerCache, PeerCacheConfig, StreamType};
+use saorsa_gossip_transport::{
+    AntQuicTransport, GossipTransport, PeerCache, PeerCacheConfig, StreamType,
+};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -124,7 +126,10 @@ async fn run_coordinator(args: &[String]) -> Result<()> {
 
     // Display cache stats
     let stats = cache.stats().await;
-    println!("  Cache: {} total peers, {} viable", stats.total_peers, stats.viable_peers);
+    println!(
+        "  Cache: {} total peers, {} viable",
+        stats.total_peers, stats.viable_peers
+    );
     println!();
     println!("📡 Waiting for benchmark clients...");
     println!();
@@ -145,16 +150,25 @@ async fn run_coordinator(args: &[String]) -> Result<()> {
                 println!("📦 Message #{}", message_count);
                 println!("  From: {}", sender_peer_id);
                 println!("  Stream: {:?}", stream_type);
-                println!("  Size: {} bytes ({:.2} MB)", size, size as f64 / 1_048_576.0);
-                println!("  Total: {:.2} MB in {:.2}s",
+                println!(
+                    "  Size: {} bytes ({:.2} MB)",
+                    size,
+                    size as f64 / 1_048_576.0
+                );
+                println!(
+                    "  Total: {:.2} MB in {:.2}s",
                     total_received as f64 / 1_048_576.0,
                     elapsed.as_secs_f64()
                 );
 
                 // Calculate current throughput
-                let throughput_mbps = (total_received as f64 * 8.0) / elapsed.as_secs_f64() / 1_000_000.0;
+                let throughput_mbps =
+                    (total_received as f64 * 8.0) / elapsed.as_secs_f64() / 1_000_000.0;
                 let throughput_mbytes = total_received as f64 / elapsed.as_secs_f64() / 1_048_576.0;
-                println!("  Avg Throughput: {:.2} Mbps ({:.2} MB/s)", throughput_mbps, throughput_mbytes);
+                println!(
+                    "  Avg Throughput: {:.2} Mbps ({:.2} MB/s)",
+                    throughput_mbps, throughput_mbytes
+                );
                 println!();
             }
             Err(e) => {
@@ -200,7 +214,10 @@ async fn run_benchmark(args: &[String]) -> Result<()> {
 
     // Display cache stats
     let stats = cache.stats().await;
-    println!("  Cache: {} total peers, {} viable", stats.total_peers, stats.viable_peers);
+    println!(
+        "  Cache: {} total peers, {} viable",
+        stats.total_peers, stats.viable_peers
+    );
     println!();
 
     // Get coordinator peer ID
@@ -234,8 +251,10 @@ async fn run_benchmark(args: &[String]) -> Result<()> {
 
     // Run benchmarks for each message size
     for (idx, &message_size) in MESSAGE_SIZES.iter().enumerate() {
-        println!("┌─ Test {}/{}: {} bytes ({:.2} MB)",
-            idx + 1, MESSAGE_SIZES.len(),
+        println!(
+            "┌─ Test {}/{}: {} bytes ({:.2} MB)",
+            idx + 1,
+            MESSAGE_SIZES.len(),
             message_size,
             message_size as f64 / 1_048_576.0
         );
@@ -266,7 +285,8 @@ async fn run_benchmark(args: &[String]) -> Result<()> {
                     let throughput_mbytes =
                         message_size as f64 / send_duration.as_secs_f64() / 1_048_576.0;
 
-                    println!("✓ {:.3}s ({:.2} Mbps, {:.2} MB/s)",
+                    println!(
+                        "✓ {:.3}s ({:.2} Mbps, {:.2} MB/s)",
                         send_duration.as_secs_f64(),
                         throughput_mbps,
                         throughput_mbytes
@@ -305,19 +325,24 @@ async fn run_benchmark(args: &[String]) -> Result<()> {
         // Calculate statistics for this message size
         let successful: Vec<_> = size_results.iter().filter(|r| r.success).collect();
         if !successful.is_empty() {
-            let avg_mbps: f64 = successful.iter().map(|r| r.throughput_mbps).sum::<f64>()
-                / successful.len() as f64;
+            let avg_mbps: f64 =
+                successful.iter().map(|r| r.throughput_mbps).sum::<f64>() / successful.len() as f64;
             let avg_mbytes: f64 = successful.iter().map(|r| r.throughput_mbytes).sum::<f64>()
                 / successful.len() as f64;
-            let avg_duration: f64 = successful.iter()
+            let avg_duration: f64 = successful
+                .iter()
                 .map(|r| r.duration.as_secs_f64())
-                .sum::<f64>() / successful.len() as f64;
+                .sum::<f64>()
+                / successful.len() as f64;
 
             println!("│");
             println!("│  Summary:");
             println!("│    Success: {}/{}", successful.len(), MESSAGES_PER_SIZE);
             println!("│    Avg Duration: {:.3}s", avg_duration);
-            println!("│    Avg Throughput: {:.2} Mbps ({:.2} MB/s)", avg_mbps, avg_mbytes);
+            println!(
+                "│    Avg Throughput: {:.2} Mbps ({:.2} MB/s)",
+                avg_mbps, avg_mbytes
+            );
         }
 
         summary.results.extend(size_results);
@@ -354,12 +379,14 @@ fn display_summary(summary: &BenchmarkSummary) {
     println!("📊 Overall Statistics");
     println!("────────────────────────────────────────");
     println!("  Total Messages: {}", summary.total_messages);
-    println!("  Successful: {} ({:.1}%)",
+    println!(
+        "  Successful: {} ({:.1}%)",
         summary.successful_messages,
         (summary.successful_messages as f64 / summary.total_messages as f64) * 100.0
     );
     println!("  Failed: {}", summary.failed_messages);
-    println!("  Total Data Sent: {:.2} MB",
+    println!(
+        "  Total Data Sent: {:.2} MB",
         summary.total_bytes_sent as f64 / 1_048_576.0
     );
     println!();
@@ -368,7 +395,8 @@ fn display_summary(summary: &BenchmarkSummary) {
     println!("🔌 Connection Statistics");
     println!("────────────────────────────────────────");
     for (idx, conn) in summary.connection_stats.iter().enumerate() {
-        println!("  Connection {}: {:.3}s (PeerId: {})",
+        println!(
+            "  Connection {}: {:.3}s (PeerId: {})",
             idx + 1,
             conn.connection_time.as_secs_f64(),
             &conn.peer_id[..16]
@@ -381,20 +409,27 @@ fn display_summary(summary: &BenchmarkSummary) {
     println!("────────────────────────────────────────");
 
     for &size in MESSAGE_SIZES {
-        let size_results: Vec<_> = summary.results.iter()
+        let size_results: Vec<_> = summary
+            .results
+            .iter()
             .filter(|r| r.message_size == size && r.success)
             .collect();
 
         if !size_results.is_empty() {
             let avg_mbps = size_results.iter().map(|r| r.throughput_mbps).sum::<f64>()
                 / size_results.len() as f64;
-            let avg_mbytes = size_results.iter().map(|r| r.throughput_mbytes).sum::<f64>()
+            let avg_mbytes = size_results
+                .iter()
+                .map(|r| r.throughput_mbytes)
+                .sum::<f64>()
                 / size_results.len() as f64;
-            let min_mbps = size_results.iter()
+            let min_mbps = size_results
+                .iter()
                 .map(|r| r.throughput_mbps)
                 .min_by(|a, b| a.partial_cmp(b).unwrap())
                 .unwrap_or(0.0);
-            let max_mbps = size_results.iter()
+            let max_mbps = size_results
+                .iter()
                 .map(|r| r.throughput_mbps)
                 .max_by(|a, b| a.partial_cmp(b).unwrap())
                 .unwrap_or(0.0);

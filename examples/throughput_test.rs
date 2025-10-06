@@ -11,7 +11,7 @@
 //! cargo run --example throughput_test --release -- sender --coordinator 127.0.0.1:8000 --bind 127.0.0.1:9000
 //! ```
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use bytes::Bytes;
 use saorsa_gossip_transport::{AntQuicTransport, GossipTransport, StreamType};
 use std::net::SocketAddr;
@@ -90,8 +90,15 @@ async fn run_receiver(args: &[String]) -> Result<()> {
                 println!("📦 Test #{} - Received data", test_count);
                 println!("  Sender: {}", sender_peer_id);
                 println!("  Stream: {:?}", stream_type);
-                println!("  Size: {} bytes ({:.2} MB)", size, size as f64 / 1_048_576.0);
-                println!("  Total received: {:.2} MB", total_received as f64 / 1_048_576.0);
+                println!(
+                    "  Size: {} bytes ({:.2} MB)",
+                    size,
+                    size as f64 / 1_048_576.0
+                );
+                println!(
+                    "  Total received: {:.2} MB",
+                    total_received as f64 / 1_048_576.0
+                );
                 println!();
 
                 // Verify data integrity (all bytes should be the test number)

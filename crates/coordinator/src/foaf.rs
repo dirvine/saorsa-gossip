@@ -5,6 +5,14 @@
 use crate::CoordinatorAdvert;
 use saorsa_gossip_types::PeerId;
 use serde::{Deserialize, Serialize};
+use std::time::{Duration, SystemTime};
+
+fn current_millis() -> u64 {
+    match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
+        Ok(duration) => duration.as_millis() as u64,
+        Err(_) => Duration::ZERO.as_millis() as u64,
+    }
+}
 
 /// Maximum TTL for FIND_COORDINATOR queries (SPEC2 §7.3)
 pub const MAX_FIND_COORDINATOR_TTL: u8 = 3;
@@ -30,10 +38,7 @@ impl FindCoordinatorQuery {
     pub fn new(origin: PeerId) -> Self {
         let query_id = blake3::hash(&[&origin.to_bytes()[..], &rand_bytes()].concat());
 
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system time before unix epoch")
-            .as_millis() as u64;
+        let now = current_millis();
 
         Self {
             query_id: *query_id.as_bytes(),
@@ -55,10 +60,7 @@ impl FindCoordinatorQuery {
 
     /// Check if query has expired (older than 30 seconds)
     pub fn is_expired(&self) -> bool {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system time before unix epoch")
-            .as_millis() as u64;
+        let now = current_millis();
 
         now > self.created_at + 30_000
     }
@@ -88,14 +90,14 @@ impl FindCoordinatorResponse {
 
 // Helper to generate random bytes for query IDs
 fn rand_bytes() -> Vec<u8> {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .expect("system time before unix epoch")
-        .as_nanos();
-    now.to_le_bytes().to_vec()
+    match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
+        Ok(duration) => duration.as_nanos().to_le_bytes().to_vec(),
+        Err(_) => Duration::ZERO.as_nanos().to_le_bytes().to_vec(),
+    }
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
     use super::*;
 
@@ -139,11 +141,7 @@ mod tests {
         assert!(!query.is_expired(), "Fresh query should not be expired");
 
         // Simulate old query
-        query.created_at = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system time")
-            .as_millis() as u64
-            - 40_000; // 40 seconds ago
+        query.created_at = current_millis() - 40_000; // 40 seconds ago
 
         assert!(query.is_expired(), "Old query should be expired");
     }

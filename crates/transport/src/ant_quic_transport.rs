@@ -48,7 +48,11 @@ pub struct AntQuicTransportConfig {
 
 impl AntQuicTransportConfig {
     /// Create a new configuration with required fields and sensible defaults
-    pub fn new(bind_addr: SocketAddr, role: EndpointRole, bootstrap_nodes: Vec<SocketAddr>) -> Self {
+    pub fn new(
+        bind_addr: SocketAddr,
+        role: EndpointRole,
+        bootstrap_nodes: Vec<SocketAddr>,
+    ) -> Self {
         Self {
             bind_addr,
             role,
@@ -157,8 +161,10 @@ impl AntQuicTransport {
             config.bind_addr, config.role
         );
         info!("Peer ID: {:?}", ant_peer_id);
-        info!("Config: channel_capacity={}, max_peers={}, stream_read_limit={}",
-            config.channel_capacity, config.max_peers, config.stream_read_limit);
+        info!(
+            "Config: channel_capacity={}, max_peers={}, stream_read_limit={}",
+            config.channel_capacity, config.max_peers, config.stream_read_limit
+        );
 
         // Create QuicP2PNode configuration
         let node_config = QuicNodeConfig {
@@ -222,12 +228,17 @@ impl AntQuicTransport {
                         );
 
                         // Store bootstrap peer ID
-                        transport.bootstrap_peer_ids.write().await
+                        transport
+                            .bootstrap_peer_ids
+                            .write()
+                            .await
                             .insert(*bootstrap_addr, gossip_coordinator_id);
 
                         // Update peer cache if present
                         if let Some(cache) = &transport.peer_cache {
-                            cache.mark_success(gossip_coordinator_id, *bootstrap_addr).await;
+                            cache
+                                .mark_success(gossip_coordinator_id, *bootstrap_addr)
+                                .await;
                         }
 
                         connected_count += 1;
@@ -376,7 +387,10 @@ impl AntQuicTransport {
                         }
 
                         // Return just peer IDs
-                        peer_data.into_iter().map(|(peer_id, _, _)| peer_id).collect::<Vec<_>>()
+                        peer_data
+                            .into_iter()
+                            .map(|(peer_id, _, _)| peer_id)
+                            .collect::<Vec<_>>()
                     }
                     Err(e) => {
                         debug!("Error listing connections: {}", e);
@@ -396,7 +410,10 @@ impl AntQuicTransport {
                         if let Ok(Some(connection)) = nat_endpoint.get_connection(&peer_id) {
                             // Extract real peer address from connection
                             let peer_addr = connection.remote_address();
-                            info!("Spawning stream handlers for peer {:?} at {}", peer_id, peer_addr);
+                            info!(
+                                "Spawning stream handlers for peer {:?} at {}",
+                                peer_id, peer_addr
+                            );
 
                             // Spawn unidirectional stream handler
                             let conn_uni = connection.clone();
@@ -409,23 +426,36 @@ impl AntQuicTransport {
                                 loop {
                                     match conn_uni.accept_uni().await {
                                         Ok(mut recv_stream) => {
-                                            debug!("Accepted unidirectional stream from {:?}", peer_id);
+                                            debug!(
+                                                "Accepted unidirectional stream from {:?}",
+                                                peer_id
+                                            );
 
                                             // Read data from stream with configurable limit
                                             match recv_stream.read_to_end(read_limit_uni).await {
                                                 Ok(data) => {
                                                     if data.is_empty() {
-                                                        debug!("Empty stream data from {:?}", peer_id);
+                                                        debug!(
+                                                            "Empty stream data from {:?}",
+                                                            peer_id
+                                                        );
                                                         continue;
                                                     }
 
                                                     debug!("Read {} bytes from stream", data.len());
 
                                                     // Convert peer ID
-                                                    let gossip_peer_id = ant_peer_id_to_gossip(&peer_id);
+                                                    let gossip_peer_id =
+                                                        ant_peer_id_to_gossip(&peer_id);
 
                                                     // Track peer with real address (with LRU eviction)
-                                                    add_peer_with_lru(&peers_uni, gossip_peer_id, peer_addr_uni, max_peers_uni).await;
+                                                    add_peer_with_lru(
+                                                        &peers_uni,
+                                                        gossip_peer_id,
+                                                        peer_addr_uni,
+                                                        max_peers_uni,
+                                                    )
+                                                    .await;
 
                                                     // Parse stream type from first byte
                                                     let stream_type = match data.first() {
@@ -433,7 +463,10 @@ impl AntQuicTransport {
                                                         Some(&1) => StreamType::PubSub,
                                                         Some(&2) => StreamType::Bulk,
                                                         Some(&other) => {
-                                                            warn!("Unknown stream type byte: {}", other);
+                                                            warn!(
+                                                                "Unknown stream type byte: {}",
+                                                                other
+                                                            );
                                                             continue;
                                                         }
                                                         None => {
@@ -450,7 +483,14 @@ impl AntQuicTransport {
                                                     };
 
                                                     // Forward to recv channel (bounded, may apply backpressure)
-                                                    if let Err(e) = tx_uni.send((gossip_peer_id, stream_type, payload)).await {
+                                                    if let Err(e) = tx_uni
+                                                        .send((
+                                                            gossip_peer_id,
+                                                            stream_type,
+                                                            payload,
+                                                        ))
+                                                        .await
+                                                    {
                                                         error!("Failed to forward message (channel closed): {}", e);
                                                         break;
                                                     }
@@ -488,7 +528,10 @@ impl AntQuicTransport {
                                 loop {
                                     match conn_bi.accept_bi().await {
                                         Ok((_send_stream, mut recv_stream)) => {
-                                            debug!("Accepted bidirectional stream from {:?}", peer_id);
+                                            debug!(
+                                                "Accepted bidirectional stream from {:?}",
+                                                peer_id
+                                            );
 
                                             // Read data from stream with configurable limit
                                             match recv_stream.read_to_end(read_limit_bi).await {
@@ -497,17 +540,27 @@ impl AntQuicTransport {
                                                         continue;
                                                     }
 
-                                                    let gossip_peer_id = ant_peer_id_to_gossip(&peer_id);
+                                                    let gossip_peer_id =
+                                                        ant_peer_id_to_gossip(&peer_id);
 
                                                     // Track peer with real address (with LRU eviction)
-                                                    add_peer_with_lru(&peers_bi, gossip_peer_id, peer_addr_bi, max_peers_bi).await;
+                                                    add_peer_with_lru(
+                                                        &peers_bi,
+                                                        gossip_peer_id,
+                                                        peer_addr_bi,
+                                                        max_peers_bi,
+                                                    )
+                                                    .await;
 
                                                     let stream_type = match data.first() {
                                                         Some(&0) => StreamType::Membership,
                                                         Some(&1) => StreamType::PubSub,
                                                         Some(&2) => StreamType::Bulk,
                                                         Some(&other) => {
-                                                            warn!("Unknown stream type byte: {}", other);
+                                                            warn!(
+                                                                "Unknown stream type byte: {}",
+                                                                other
+                                                            );
                                                             continue;
                                                         }
                                                         None => continue,
@@ -520,7 +573,14 @@ impl AntQuicTransport {
                                                     };
 
                                                     // Forward to recv channel (bounded, may apply backpressure)
-                                                    if let Err(e) = tx_bi.send((gossip_peer_id, stream_type, payload)).await {
+                                                    if let Err(e) = tx_bi
+                                                        .send((
+                                                            gossip_peer_id,
+                                                            stream_type,
+                                                            payload,
+                                                        ))
+                                                        .await
+                                                    {
                                                         error!("Failed to forward message (channel closed): {}", e);
                                                         break;
                                                     }
@@ -532,7 +592,10 @@ impl AntQuicTransport {
                                             }
                                         }
                                         Err(e) => {
-                                            debug!("Bi stream accept error for {:?}: {}", peer_id, e);
+                                            debug!(
+                                                "Bi stream accept error for {:?}: {}",
+                                                peer_id, e
+                                            );
                                             break;
                                         }
                                     }
@@ -701,9 +764,7 @@ impl GossipTransport for AntQuicTransport {
         buf.extend_from_slice(&data);
 
         // Send via ant-quic
-        let send_result = self.node
-            .send_to_peer(&ant_peer_id, &buf)
-            .await;
+        let send_result = self.node.send_to_peer(&ant_peer_id, &buf).await;
 
         match send_result {
             Ok(()) => {

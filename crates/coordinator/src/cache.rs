@@ -4,7 +4,16 @@ use crate::CoordinatorAdvert;
 use lru::LruCache;
 use saorsa_gossip_types::PeerId;
 use std::num::NonZeroUsize;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
+
+const DEFAULT_CAPACITY: usize = 100;
+
+fn non_zero_capacity(capacity: usize) -> NonZeroUsize {
+    match NonZeroUsize::new(capacity) {
+        Some(value) => value,
+        None => unsafe { NonZeroUsize::new_unchecked(DEFAULT_CAPACITY) },
+    }
+}
 
 /// LRU cache for coordinator advertisements
 ///
@@ -20,10 +29,19 @@ impl AdvertCache {
     /// # Arguments
     /// * `capacity` - Maximum number of adverts to cache
     pub fn new(capacity: usize) -> Self {
-        let cap = NonZeroUsize::new(capacity).unwrap_or(NonZeroUsize::new(100).unwrap());
+        let effective_capacity = if capacity == 0 {
+            DEFAULT_CAPACITY
+        } else {
+            capacity
+        };
+        let cap = non_zero_capacity(effective_capacity);
         Self {
             cache: Arc::new(Mutex::new(LruCache::new(cap))),
         }
+    }
+
+    fn lock_cache(&self) -> Option<MutexGuard<'_, LruCache<PeerId, CoordinatorAdvert>>> {
+        self.cache.lock().ok()
     }
 
     /// Insert an advert (if valid and not expired)
@@ -34,16 +52,20 @@ impl AdvertCache {
             return false;
         }
 
-        let mut cache = self.cache.lock().expect("lock poisoned");
-        cache.put(advert.peer, advert);
-        true
+        match self.lock_cache() {
+            Some(mut cache) => {
+                cache.put(advert.peer, advert);
+                true
+            }
+            None => false,
+        }
     }
 
     /// Get an advert by peer ID
     ///
     /// Returns `None` if the advert is not in the cache or has expired.
     pub fn get(&self, peer: &PeerId) -> Option<CoordinatorAdvert> {
-        let mut cache = self.cache.lock().expect("lock poisoned");
+        let mut cache = self.lock_cache()?;
         cache.get(peer).filter(|advert| advert.is_valid()).cloned()
     }
 
@@ -51,7 +73,10 @@ impl AdvertCache {
     ///
     /// Only returns valid (non-expired) adverts.
     pub fn get_all_sorted(&self) -> Vec<CoordinatorAdvert> {
-        let cache = self.cache.lock().expect("lock poisoned");
+        let cache = match self.lock_cache() {
+            Some(cache) => cache,
+            None => return Vec::new(),
+        };
         let mut adverts: Vec<_> = cache
             .iter()
             .filter(|(_, advert)| advert.is_valid())
@@ -68,7 +93,10 @@ impl AdvertCache {
         &self,
         role_filter: impl Fn(&CoordinatorAdvert) -> bool,
     ) -> Vec<CoordinatorAdvert> {
-        let cache = self.cache.lock().expect("lock poisoned");
+        let cache = match self.lock_cache() {
+            Some(cache) => cache,
+            None => return Vec::new(),
+        };
         cache
             .iter()
             .filter(|(_, advert)| advert.is_valid() && role_filter(advert))
@@ -80,7 +108,10 @@ impl AdvertCache {
     ///
     /// Returns the number of adverts removed.
     pub fn prune_expired(&self) -> usize {
-        let mut cache = self.cache.lock().expect("lock poisoned");
+        let mut cache = match self.lock_cache() {
+            Some(cache) => cache,
+            None => return 0,
+        };
         let to_remove: Vec<_> = cache
             .iter()
             .filter(|(_, advert)| !advert.is_valid())
@@ -96,8 +127,9 @@ impl AdvertCache {
 
     /// Get the number of valid adverts in the cache
     pub fn len(&self) -> usize {
-        let cache = self.cache.lock().expect("lock poisoned");
-        cache.iter().filter(|(_, advert)| advert.is_valid()).count()
+        self.lock_cache()
+            .map(|cache| cache.iter().filter(|(_, advert)| advert.is_valid()).count())
+            .unwrap_or(0)
     }
 
     /// Check if the cache is empty
@@ -107,8 +139,9 @@ impl AdvertCache {
 
     /// Clear all adverts from the cache
     pub fn clear(&self) {
-        let mut cache = self.cache.lock().expect("lock poisoned");
-        cache.clear();
+        if let Some(mut cache) = self.lock_cache() {
+            cache.clear();
+        }
     }
 }
 
@@ -127,6 +160,7 @@ impl Default for AdvertCache {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
     use super::*;
     use crate::{CoordinatorRoles, NatClass};

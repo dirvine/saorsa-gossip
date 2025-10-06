@@ -42,6 +42,7 @@
 use saorsa_gossip_types::PeerId;
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
+use std::time::{Duration, SystemTime};
 
 mod bootstrap;
 mod cache;
@@ -61,6 +62,13 @@ pub use handler::CoordinatorHandler;
 pub use peer_cache::{PeerCache, PeerCacheEntry, PeerRoles};
 pub use publisher::{CoordinatorPublisher, PeriodicPublisher};
 pub use topic::coordinator_topic;
+
+fn current_unix_time_millis() -> u64 {
+    match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
+        Ok(duration) => duration.as_millis() as u64,
+        Err(_) => Duration::ZERO.as_millis() as u64,
+    }
+}
 
 /// Coordinator roles per SPEC2 §8
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -118,10 +126,7 @@ pub struct AddrHint {
 impl AddrHint {
     /// Create a new address hint with current timestamp
     pub fn new(addr: SocketAddr) -> Self {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system time before unix epoch")
-            .as_millis() as u64;
+        let now = current_unix_time_millis();
 
         Self {
             addr,
@@ -227,10 +232,7 @@ impl CoordinatorAdvert {
         nat_class: NatClass,
         validity_duration_ms: u64,
     ) -> Self {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system time before unix epoch")
-            .as_millis() as u64;
+        let now = current_unix_time_millis();
 
         Self {
             v: 1,
@@ -308,10 +310,7 @@ impl CoordinatorAdvert {
 
     /// Check if advert is currently valid (not expired)
     pub fn is_valid(&self) -> bool {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system time before unix epoch")
-            .as_millis() as u64;
+        let now = current_unix_time_millis();
 
         now >= self.not_before && now <= self.not_after
     }
@@ -354,6 +353,7 @@ struct SignableFields<'a> {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
     use super::*;
 

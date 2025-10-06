@@ -44,6 +44,7 @@
 
 use saorsa_gossip_types::PeerId;
 use serde::{Deserialize, Serialize};
+use std::time::{Duration, SystemTime};
 
 /// Shard space size: k=16 → 2^16 = 65,536 shards per SPEC2 §9
 pub const SHARD_BITS: u32 = 16;
@@ -55,6 +56,13 @@ const RENDEZVOUS_PREFIX: &[u8] = b"saorsa-rendezvous";
 
 /// Shard ID (0..65,535)
 pub type ShardId = u16;
+
+fn current_time_millis() -> u64 {
+    match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
+        Ok(duration) => duration.as_millis() as u64,
+        Err(_) => Duration::ZERO.as_millis() as u64,
+    }
+}
 
 /// Calculate the rendezvous shard for a target ID per SPEC2 §9
 ///
@@ -277,10 +285,7 @@ impl ProviderSummary {
         capabilities: Vec<Capability>,
         validity_ms: u64,
     ) -> Self {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system time before unix epoch")
-            .as_millis() as u64;
+        let now = current_time_millis();
 
         Self {
             v: 1,
@@ -315,10 +320,7 @@ impl ProviderSummary {
 
     /// Check if summary is currently valid (not expired)
     pub fn is_valid(&self) -> bool {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system time before unix epoch")
-            .as_millis() as u64;
+        let now = current_time_millis();
 
         now <= self.exp
     }
@@ -427,6 +429,7 @@ struct SignableFields<'a> {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
     use super::*;
 

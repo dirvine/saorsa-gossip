@@ -52,6 +52,11 @@ const IWANT_TIMEOUT_SECS: u64 = 2;
 /// Message ID type alias
 type MessageIdType = [u8; 32];
 
+const fn message_cache_capacity() -> NonZeroUsize {
+    // SAFETY: MAX_CACHE_SIZE is a positive constant (10,000)
+    unsafe { NonZeroUsize::new_unchecked(MAX_CACHE_SIZE) }
+}
+
 /// Gossip message wrapper
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct GossipMessage {
@@ -97,9 +102,7 @@ impl TopicState {
         Self {
             eager_peers: HashSet::new(),
             lazy_peers: HashSet::new(),
-            message_cache: LruCache::new(
-                NonZeroUsize::new(MAX_CACHE_SIZE).expect("MAX_CACHE_SIZE is non-zero"),
-            ),
+            message_cache: LruCache::new(message_cache_capacity()),
             pending_ihave: Vec::new(),
             outstanding_iwants: HashMap::new(),
             subscribers: Vec::new(),
@@ -679,6 +682,7 @@ impl<T: GossipTransport + 'static> PubSub for PlumtreePubSub<T> {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
     use super::*;
     use saorsa_gossip_transport::{QuicTransport, TransportConfig};
