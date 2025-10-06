@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, RwLock};
 use tracing::{debug, error, info, warn};
 
-use crate::{GossipTransport, StreamType};
+use crate::{GossipTransport, PeerCache, StreamType};
 
 // Import ant-quic types
 use ant_quic::{
@@ -46,10 +46,14 @@ pub struct AntQuicTransport {
     bootstrap_nodes: Vec<SocketAddr>,
     /// Track connected peers with their addresses and last seen time
     connected_peers: Arc<RwLock<HashMap<GossipPeerId, (SocketAddr, Instant)>>>,
+    /// Bootstrap peer IDs mapped to their addresses
+    bootstrap_peer_ids: Arc<RwLock<HashMap<SocketAddr, GossipPeerId>>>,
+    /// Optional peer cache for persistent peer storage
+    peer_cache: Option<Arc<PeerCache>>,
 }
 
 impl AntQuicTransport {
-    /// Create a new Ant-QUIC transport
+    /// Create a new Ant-QUIC transport without peer cache
     ///
     /// # Arguments
     /// * `bind_addr` - Local address to bind to
@@ -59,6 +63,22 @@ impl AntQuicTransport {
         bind_addr: SocketAddr,
         role: EndpointRole,
         bootstrap_nodes: Vec<SocketAddr>,
+    ) -> Result<Self> {
+        Self::new_with_cache(bind_addr, role, bootstrap_nodes, None).await
+    }
+
+    /// Create a new Ant-QUIC transport with optional peer cache
+    ///
+    /// # Arguments
+    /// * `bind_addr` - Local address to bind to
+    /// * `role` - Endpoint role (Client, Server, or Bootstrap)
+    /// * `bootstrap_nodes` - List of bootstrap coordinator addresses
+    /// * `peer_cache` - Optional peer cache for persistent peer storage
+    pub async fn new_with_cache(
+        bind_addr: SocketAddr,
+        role: EndpointRole,
+        bootstrap_nodes: Vec<SocketAddr>,
+        peer_cache: Option<Arc<PeerCache>>,
     ) -> Result<Self> {
         // Generate Ed25519 keypair for peer identity
         let (_private_key, public_key) = generate_ed25519_keypair();
@@ -102,6 +122,8 @@ impl AntQuicTransport {
             gossip_peer_id,
             bootstrap_nodes: bootstrap_nodes.clone(),
             connected_peers: Arc::new(RwLock::new(HashMap::new())),
+            bootstrap_peer_ids: Arc::new(RwLock::new(HashMap::new())),
+            peer_cache: peer_cache.clone(),
         };
 
         // Start receiving loop
@@ -123,10 +145,22 @@ impl AntQuicTransport {
 
                 match node.connect_to_bootstrap(*bootstrap_addr).await {
                     Ok(coordinator_peer_id) => {
+                        let gossip_coordinator_id = ant_peer_id_to_gossip(&coordinator_peer_id);
+
                         info!(
                             "✓ Connected to bootstrap coordinator {} (PeerId: {:?})",
                             bootstrap_addr, coordinator_peer_id
                         );
+
+                        // Store bootstrap peer ID
+                        transport.bootstrap_peer_ids.write().await
+                            .insert(*bootstrap_addr, gossip_coordinator_id);
+
+                        // Update peer cache if present
+                        if let Some(cache) = &transport.peer_cache {
+                            cache.mark_success(gossip_coordinator_id, *bootstrap_addr).await;
+                        }
+
                         connected_count += 1;
                     }
                     Err(e) => {
@@ -181,66 +215,265 @@ impl AntQuicTransport {
             .collect()
     }
 
+    /// Get bootstrap peer ID by coordinator address
+    ///
+    /// Returns the peer ID of a bootstrap coordinator if connected.
+    pub async fn get_bootstrap_peer_id(&self, addr: SocketAddr) -> Option<GossipPeerId> {
+        self.bootstrap_peer_ids.read().await.get(&addr).copied()
+    }
+
+    /// List all bootstrap peers
+    ///
+    /// Returns a vector of (SocketAddr, PeerId) tuples for all connected bootstrap coordinators.
+    pub async fn list_bootstrap_peers(&self) -> Vec<(SocketAddr, GossipPeerId)> {
+        self.bootstrap_peer_ids
+            .read()
+            .await
+            .iter()
+            .map(|(addr, peer_id)| (*addr, *peer_id))
+            .collect()
+    }
+
+    /// Get peer ID for any connected peer (bootstrap or discovered)
+    ///
+    /// Returns the peer ID for a peer at the given address, checking both
+    /// bootstrap coordinators and regular connected peers.
+    pub async fn get_connected_peer_id(&self, addr: SocketAddr) -> Option<GossipPeerId> {
+        // Check bootstrap peers first
+        if let Some(peer_id) = self.bootstrap_peer_ids.read().await.get(&addr) {
+            return Some(*peer_id);
+        }
+
+        // Check regular connected peers
+        self.connected_peers
+            .read()
+            .await
+            .iter()
+            .find(|(_, (peer_addr, _))| *peer_addr == addr)
+            .map(|(peer_id, _)| *peer_id)
+    }
+
+    /// Get reference to peer cache if configured
+    pub fn peer_cache(&self) -> Option<&Arc<PeerCache>> {
+        self.peer_cache.as_ref()
+    }
+
     /// Spawn background task to receive incoming messages
     ///
-    /// Receives messages from ant-quic and forwards them to the recv channel
-    /// with proper stream type routing based on the first byte.
+    /// IMPORTANT: This implementation directly accepts streams from connections
+    /// instead of using node.receive() which has 100ms timeout issues.
+    ///
+    /// For each new connection, we spawn dedicated stream acceptance tasks that
+    /// continuously accept unidirectional and bidirectional streams without timeouts.
     fn spawn_receiver(&self) {
         let node = Arc::clone(&self.node);
         let recv_tx = self.recv_tx.clone();
         let connected_peers = Arc::clone(&self.connected_peers);
 
         tokio::spawn(async move {
-            info!("Ant-QUIC receiver task started");
+            info!("Ant-QUIC direct stream receiver task started");
+
+            // Get access to NAT endpoint for direct connection access
+            let nat_endpoint = match node.get_nat_endpoint() {
+                Ok(endpoint) => endpoint,
+                Err(e) => {
+                    error!("Failed to get NAT endpoint: {}", e);
+                    return;
+                }
+            };
+
+            // Track which peer IDs we've already spawned handlers for
+            let spawned_handlers: Arc<RwLock<std::collections::HashSet<AntPeerId>>> =
+                Arc::new(RwLock::new(std::collections::HashSet::new()));
 
             loop {
-                // Receive message from ant-quic (blocks until message arrives)
-                match node.receive().await {
-                    Ok((ant_peer_id, data)) => {
-                        debug!("Received {} bytes from peer {:?}", data.len(), ant_peer_id);
+                // Get ALL currently connected peers from NAT endpoint
+                let peers = match nat_endpoint.list_connections() {
+                    Ok(connections) => {
+                        // Store peers in tracking (need to collect first to avoid holding lock)
+                        let peer_data: Vec<(AntPeerId, GossipPeerId, SocketAddr)> = connections
+                            .into_iter()
+                            .map(|(peer_id, addr)| {
+                                let gossip_id = ant_peer_id_to_gossip(&peer_id);
+                                (peer_id, gossip_id, addr)
+                            })
+                            .collect();
 
-                        // Convert ant PeerId to gossip PeerId
-                        let gossip_peer_id = ant_peer_id_to_gossip(&ant_peer_id);
-
-                        // Track incoming connection
-                        let mut peers = connected_peers.blocking_write();
-                        let peer_addr = SocketAddr::from(([127, 0, 0, 1], 8080)); // Placeholder
-                        peers.insert(gossip_peer_id, (peer_addr, Instant::now()));
-                        drop(peers);
-
-                        // Parse stream type from first byte
-                        if data.is_empty() {
-                            warn!("Received empty message from {:?}", ant_peer_id);
-                            continue;
-                        }
-
-                        let stream_type = match data[0] {
-                            0 => StreamType::Membership,
-                            1 => StreamType::PubSub,
-                            2 => StreamType::Bulk,
-                            other => {
-                                warn!("Unknown stream type byte: {}", other);
-                                continue;
+                        // Update tracking map
+                        {
+                            let mut peers_map = connected_peers.write().await;
+                            for (_, gossip_id, addr) in &peer_data {
+                                peers_map.insert(*gossip_id, (*addr, Instant::now()));
                             }
-                        };
-
-                        // Extract payload (skip first byte)
-                        let payload = Bytes::copy_from_slice(&data[1..]);
-
-                        // Forward to recv channel
-                        if let Err(e) = recv_tx.send((gossip_peer_id, stream_type, payload)) {
-                            error!("Failed to forward received message: {}", e);
-                            break;
                         }
+
+                        // Return just peer IDs
+                        peer_data.into_iter().map(|(peer_id, _, _)| peer_id).collect::<Vec<_>>()
                     }
                     Err(e) => {
-                        debug!("Receive error: {}", e);
-                        tokio::time::sleep(Duration::from_millis(100)).await;
+                        debug!("Error listing connections: {}", e);
+                        tokio::time::sleep(Duration::from_secs(1)).await;
+                        continue;
+                    }
+                };
+
+                // Spawn handlers for any new peers
+                for peer_id in peers {
+                    let mut spawned = spawned_handlers.write().await;
+                    if !spawned.contains(&peer_id) {
+                        spawned.insert(peer_id);
+                        drop(spawned);
+
+                        // Get the connection
+                        if let Ok(Some(connection)) = nat_endpoint.get_connection(&peer_id) {
+                            info!("Spawning stream handlers for peer {:?}", peer_id);
+
+                            // Spawn unidirectional stream handler
+                            let conn_uni = connection.clone();
+                            let tx_uni = recv_tx.clone();
+                            let peers_uni = Arc::clone(&connected_peers);
+                            tokio::spawn(async move {
+                                loop {
+                                    match conn_uni.accept_uni().await {
+                                        Ok(mut recv_stream) => {
+                                            debug!("Accepted unidirectional stream from {:?}", peer_id);
+
+                                            // Read data from stream (100MB limit for large transfers)
+                                            match recv_stream.read_to_end(100 * 1024 * 1024).await {
+                                                Ok(data) => {
+                                                    if data.is_empty() {
+                                                        debug!("Empty stream data from {:?}", peer_id);
+                                                        continue;
+                                                    }
+
+                                                    debug!("Read {} bytes from stream", data.len());
+
+                                                    // Convert peer ID
+                                                    let gossip_peer_id = ant_peer_id_to_gossip(&peer_id);
+
+                                                    // Track peer
+                                                    let mut peers = peers_uni.write().await;
+                                                    let peer_addr = SocketAddr::from(([127, 0, 0, 1], 8080));
+                                                    peers.insert(gossip_peer_id, (peer_addr, Instant::now()));
+                                                    drop(peers);
+
+                                                    // Parse stream type from first byte
+                                                    let stream_type = match data.first() {
+                                                        Some(&0) => StreamType::Membership,
+                                                        Some(&1) => StreamType::PubSub,
+                                                        Some(&2) => StreamType::Bulk,
+                                                        Some(&other) => {
+                                                            warn!("Unknown stream type byte: {}", other);
+                                                            continue;
+                                                        }
+                                                        None => {
+                                                            warn!("Empty data from {:?}", peer_id);
+                                                            continue;
+                                                        }
+                                                    };
+
+                                                    // Extract payload (skip first byte)
+                                                    let payload = if data.len() > 1 {
+                                                        Bytes::copy_from_slice(&data[1..])
+                                                    } else {
+                                                        Bytes::new()
+                                                    };
+
+                                                    // Forward to recv channel
+                                                    if let Err(e) = tx_uni.send((gossip_peer_id, stream_type, payload)) {
+                                                        error!("Failed to forward message: {}", e);
+                                                        break;
+                                                    }
+
+                                                    info!(
+                                                        "Forwarded {} bytes ({:?}) from {:?}",
+                                                        data.len() - 1,
+                                                        stream_type,
+                                                        gossip_peer_id
+                                                    );
+                                                }
+                                                Err(e) => {
+                                                    debug!("Error reading stream: {}", e);
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                        Err(e) => {
+                                            debug!("Stream accept error for {:?}: {}", peer_id, e);
+                                            break;
+                                        }
+                                    }
+                                }
+                                debug!("Unidirectional stream handler stopped for {:?}", peer_id);
+                            });
+
+                            // Also spawn bidirectional stream handler
+                            let conn_bi = connection.clone();
+                            let tx_bi = recv_tx.clone();
+                            let peers_bi = Arc::clone(&connected_peers);
+                            tokio::spawn(async move {
+                                loop {
+                                    match conn_bi.accept_bi().await {
+                                        Ok((_send_stream, mut recv_stream)) => {
+                                            debug!("Accepted bidirectional stream from {:?}", peer_id);
+
+                                            // Read data from stream (100MB limit)
+                                            match recv_stream.read_to_end(100 * 1024 * 1024).await {
+                                                Ok(data) => {
+                                                    if data.is_empty() {
+                                                        continue;
+                                                    }
+
+                                                    let gossip_peer_id = ant_peer_id_to_gossip(&peer_id);
+
+                                                    let mut peers = peers_bi.write().await;
+                                                    let peer_addr = SocketAddr::from(([127, 0, 0, 1], 8080));
+                                                    peers.insert(gossip_peer_id, (peer_addr, Instant::now()));
+                                                    drop(peers);
+
+                                                    let stream_type = match data.first() {
+                                                        Some(&0) => StreamType::Membership,
+                                                        Some(&1) => StreamType::PubSub,
+                                                        Some(&2) => StreamType::Bulk,
+                                                        Some(&other) => {
+                                                            warn!("Unknown stream type byte: {}", other);
+                                                            continue;
+                                                        }
+                                                        None => continue,
+                                                    };
+
+                                                    let payload = if data.len() > 1 {
+                                                        Bytes::copy_from_slice(&data[1..])
+                                                    } else {
+                                                        Bytes::new()
+                                                    };
+
+                                                    if let Err(e) = tx_bi.send((gossip_peer_id, stream_type, payload)) {
+                                                        error!("Failed to forward message: {}", e);
+                                                        break;
+                                                    }
+                                                }
+                                                Err(e) => {
+                                                    debug!("Error reading bi stream: {}", e);
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                        Err(e) => {
+                                            debug!("Bi stream accept error for {:?}: {}", peer_id, e);
+                                            break;
+                                        }
+                                    }
+                                }
+                                debug!("Bidirectional stream handler stopped for {:?}", peer_id);
+                            });
+                        }
                     }
                 }
-            }
 
-            info!("Ant-QUIC receiver task stopped");
+                // Wait before checking for new peers
+                tokio::time::sleep(Duration::from_millis(500)).await;
+            }
         });
     }
 }
@@ -324,23 +557,40 @@ impl GossipTransport for AntQuicTransport {
         buf.extend_from_slice(&data);
 
         // Send via ant-quic
-        self.node
+        let send_result = self.node
             .send_to_peer(&ant_peer_id, &buf)
-            .await
-            .map_err(|e| anyhow!("Failed to send to peer: {}", e))?;
+            .await;
 
-        // Track successful connection
-        let mut connected_peers = self.connected_peers.write().await;
+        match send_result {
+            Ok(()) => {
+                // Track successful connection
+                let mut connected_peers = self.connected_peers.write().await;
 
-        // For now, use a placeholder address - in a production implementation,
-        // this would be obtained from the ant-quic connection metadata
-        let peer_addr = SocketAddr::from(([127, 0, 0, 1], 8080));
+                // For now, use a placeholder address - in a production implementation,
+                // this would be obtained from the ant-quic connection metadata
+                let peer_addr = SocketAddr::from(([127, 0, 0, 1], 8080));
 
-        connected_peers.insert(peer, (peer_addr, Instant::now()));
-        drop(connected_peers); // Release the lock
+                connected_peers.insert(peer, (peer_addr, Instant::now()));
+                drop(connected_peers);
 
-        debug!("Successfully sent {} bytes to peer {}", buf.len(), peer);
-        Ok(())
+                // Update peer cache on success
+                if let Some(cache) = &self.peer_cache {
+                    cache.mark_success(peer, peer_addr).await;
+                }
+
+                debug!("Successfully sent {} bytes to peer {}", buf.len(), peer);
+                Ok(())
+            }
+            Err(e) => {
+                // Update peer cache on failure
+                if let Some(cache) = &self.peer_cache {
+                    let peer_addr = SocketAddr::from(([127, 0, 0, 1], 8080));
+                    cache.mark_failure(peer, peer_addr).await;
+                }
+
+                Err(anyhow!("Failed to send to peer: {}", e))
+            }
+        }
     }
 
     async fn receive_message(&self) -> Result<(GossipPeerId, StreamType, Bytes)> {
