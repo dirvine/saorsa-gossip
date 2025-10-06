@@ -29,15 +29,64 @@ use ant_quic::{
     quic_node::{QuicNodeConfig, QuicP2PNode},
 };
 
+/// Configuration for Ant-QUIC transport
+#[derive(Debug, Clone)]
+pub struct AntQuicTransportConfig {
+    /// Local address to bind to
+    pub bind_addr: SocketAddr,
+    /// Endpoint role (Client, Server, or Bootstrap)
+    pub role: EndpointRole,
+    /// List of bootstrap coordinator addresses
+    pub bootstrap_nodes: Vec<SocketAddr>,
+    /// Channel capacity for backpressure (default: 10,000 messages)
+    pub channel_capacity: usize,
+    /// Peer timeout for cleanup (default: 5 minutes)
+    pub peer_timeout: Duration,
+    /// Maximum bytes to read per stream (default: 100 MB)
+    pub stream_read_limit: usize,
+}
+
+impl AntQuicTransportConfig {
+    /// Create a new configuration with required fields and sensible defaults
+    pub fn new(bind_addr: SocketAddr, role: EndpointRole, bootstrap_nodes: Vec<SocketAddr>) -> Self {
+        Self {
+            bind_addr,
+            role,
+            bootstrap_nodes,
+            channel_capacity: 10_000,
+            peer_timeout: Duration::from_secs(300), // 5 minutes
+            stream_read_limit: 100 * 1024 * 1024, // 100 MB
+        }
+    }
+
+    /// Set channel capacity for backpressure
+    pub fn with_channel_capacity(mut self, capacity: usize) -> Self {
+        self.channel_capacity = capacity;
+        self
+    }
+
+    /// Set peer timeout for cleanup
+    pub fn with_peer_timeout(mut self, timeout: Duration) -> Self {
+        self.peer_timeout = timeout;
+        self
+    }
+
+    /// Set stream read limit
+    pub fn with_stream_read_limit(mut self, limit: usize) -> Self {
+        self.stream_read_limit = limit;
+        self
+    }
+}
+
 /// Ant-QUIC transport implementation
 ///
 /// Uses QuicP2PNode for P2P QUIC networking with NAT traversal
 pub struct AntQuicTransport {
     /// The underlying ant-quic P2P node
     node: Arc<QuicP2PNode>,
-    /// Incoming message channel
-    recv_tx: mpsc::UnboundedSender<(GossipPeerId, StreamType, Bytes)>,
-    recv_rx: Arc<tokio::sync::Mutex<mpsc::UnboundedReceiver<(GossipPeerId, StreamType, Bytes)>>>,
+    /// Incoming message channel (bounded for backpressure)
+    recv_tx: mpsc::Sender<(GossipPeerId, StreamType, Bytes)>,
+    recv_rx: Arc<tokio::sync::Mutex<mpsc::Receiver<(GossipPeerId, StreamType, Bytes)>>>,
     /// Local peer ID (ant-quic format)
     ant_peer_id: AntPeerId,
     /// Local peer ID (gossip format)
@@ -50,10 +99,12 @@ pub struct AntQuicTransport {
     bootstrap_peer_ids: Arc<RwLock<HashMap<SocketAddr, GossipPeerId>>>,
     /// Optional peer cache for persistent peer storage
     peer_cache: Option<Arc<PeerCache>>,
+    /// Configuration
+    config: AntQuicTransportConfig,
 }
 
 impl AntQuicTransport {
-    /// Create a new Ant-QUIC transport without peer cache
+    /// Create a new Ant-QUIC transport without peer cache (backward compatible)
     ///
     /// # Arguments
     /// * `bind_addr` - Local address to bind to
@@ -64,10 +115,11 @@ impl AntQuicTransport {
         role: EndpointRole,
         bootstrap_nodes: Vec<SocketAddr>,
     ) -> Result<Self> {
-        Self::new_with_cache(bind_addr, role, bootstrap_nodes, None).await
+        let config = AntQuicTransportConfig::new(bind_addr, role, bootstrap_nodes);
+        Self::with_config(config, None).await
     }
 
-    /// Create a new Ant-QUIC transport with optional peer cache
+    /// Create a new Ant-QUIC transport with optional peer cache (backward compatible)
     ///
     /// # Arguments
     /// * `bind_addr` - Local address to bind to
@@ -80,6 +132,19 @@ impl AntQuicTransport {
         bootstrap_nodes: Vec<SocketAddr>,
         peer_cache: Option<Arc<PeerCache>>,
     ) -> Result<Self> {
+        let config = AntQuicTransportConfig::new(bind_addr, role, bootstrap_nodes);
+        Self::with_config(config, peer_cache).await
+    }
+
+    /// Create a new Ant-QUIC transport with custom configuration
+    ///
+    /// # Arguments
+    /// * `config` - Transport configuration
+    /// * `peer_cache` - Optional peer cache for persistent peer storage
+    pub async fn with_config(
+        config: AntQuicTransportConfig,
+        peer_cache: Option<Arc<PeerCache>>,
+    ) -> Result<Self> {
         // Generate Ed25519 keypair for peer identity
         let (_private_key, public_key) = generate_ed25519_keypair();
         let ant_peer_id = derive_peer_id_from_public_key(&public_key);
@@ -89,30 +154,33 @@ impl AntQuicTransport {
 
         info!(
             "Creating Ant-QUIC transport at {} with role {:?}",
-            bind_addr, role
+            config.bind_addr, config.role
         );
         info!("Peer ID: {:?}", ant_peer_id);
+        info!("Config: channel_capacity={}, peer_timeout={:?}, stream_read_limit={}",
+            config.channel_capacity, config.peer_timeout, config.stream_read_limit);
 
         // Create QuicP2PNode configuration
-        let config = QuicNodeConfig {
-            role,
-            bootstrap_nodes: bootstrap_nodes.clone(),
-            enable_coordinator: matches!(role, EndpointRole::Server { .. }),
+        let node_config = QuicNodeConfig {
+            role: config.role,
+            bootstrap_nodes: config.bootstrap_nodes.clone(),
+            enable_coordinator: matches!(config.role, EndpointRole::Server { .. }),
             max_connections: 100,
             connection_timeout: Duration::from_secs(30),
             stats_interval: Duration::from_secs(60),
             auth_config: AuthConfig::default(),
-            bind_addr: Some(bind_addr),
+            bind_addr: Some(config.bind_addr),
         };
 
         // Create the QuicP2PNode
         let node = Arc::new(
-            QuicP2PNode::new(config)
+            QuicP2PNode::new(node_config)
                 .await
                 .map_err(|e| anyhow!("Failed to create QuicP2PNode: {}", e))?,
         );
 
-        let (recv_tx, recv_rx) = mpsc::unbounded_channel();
+        // Create bounded channel for backpressure
+        let (recv_tx, recv_rx) = mpsc::channel(config.channel_capacity);
 
         let transport = Self {
             node: Arc::clone(&node),
@@ -120,24 +188,28 @@ impl AntQuicTransport {
             recv_rx: Arc::new(tokio::sync::Mutex::new(recv_rx)),
             ant_peer_id,
             gossip_peer_id,
-            bootstrap_nodes: bootstrap_nodes.clone(),
+            bootstrap_nodes: config.bootstrap_nodes.clone(),
             connected_peers: Arc::new(RwLock::new(HashMap::new())),
             bootstrap_peer_ids: Arc::new(RwLock::new(HashMap::new())),
             peer_cache: peer_cache.clone(),
+            config: config.clone(),
         };
 
         // Start receiving loop
         transport.spawn_receiver();
 
+        // Start peer cleanup task
+        transport.spawn_cleanup_task();
+
         // If this is a Client node with bootstrap coordinators, establish connections
-        if matches!(role, EndpointRole::Client) && !bootstrap_nodes.is_empty() {
+        if matches!(config.role, EndpointRole::Client) && !config.bootstrap_nodes.is_empty() {
             info!(
                 "Client role detected - establishing connections to {} bootstrap coordinator(s)...",
-                bootstrap_nodes.len()
+                config.bootstrap_nodes.len()
             );
 
             let mut connected_count = 0;
-            for bootstrap_addr in &bootstrap_nodes {
+            for bootstrap_addr in &config.bootstrap_nodes {
                 info!(
                     "Connecting to bootstrap coordinator at {}...",
                     bootstrap_addr
@@ -176,14 +248,14 @@ impl AntQuicTransport {
             if connected_count == 0 {
                 return Err(anyhow!(
                     "Failed to connect to any bootstrap coordinators ({} attempted)",
-                    bootstrap_nodes.len()
+                    config.bootstrap_nodes.len()
                 ));
             }
 
             info!(
                 "✓ Successfully connected to {}/{} bootstrap coordinator(s)",
                 connected_count,
-                bootstrap_nodes.len()
+                config.bootstrap_nodes.len()
             );
         }
 
@@ -269,6 +341,7 @@ impl AntQuicTransport {
         let node = Arc::clone(&self.node);
         let recv_tx = self.recv_tx.clone();
         let connected_peers = Arc::clone(&self.connected_peers);
+        let stream_read_limit = self.config.stream_read_limit;
 
         tokio::spawn(async move {
             info!("Ant-QUIC direct stream receiver task started");
@@ -326,20 +399,23 @@ impl AntQuicTransport {
 
                         // Get the connection
                         if let Ok(Some(connection)) = nat_endpoint.get_connection(&peer_id) {
-                            info!("Spawning stream handlers for peer {:?}", peer_id);
+                            // Extract real peer address from connection
+                            let peer_addr = connection.remote_address();
+                            info!("Spawning stream handlers for peer {:?} at {}", peer_id, peer_addr);
 
                             // Spawn unidirectional stream handler
                             let conn_uni = connection.clone();
                             let tx_uni = recv_tx.clone();
                             let peers_uni = Arc::clone(&connected_peers);
+                            let read_limit_uni = stream_read_limit;
                             tokio::spawn(async move {
                                 loop {
                                     match conn_uni.accept_uni().await {
                                         Ok(mut recv_stream) => {
                                             debug!("Accepted unidirectional stream from {:?}", peer_id);
 
-                                            // Read data from stream (100MB limit for large transfers)
-                                            match recv_stream.read_to_end(100 * 1024 * 1024).await {
+                                            // Read data from stream with configurable limit
+                                            match recv_stream.read_to_end(read_limit_uni).await {
                                                 Ok(data) => {
                                                     if data.is_empty() {
                                                         debug!("Empty stream data from {:?}", peer_id);
@@ -351,9 +427,8 @@ impl AntQuicTransport {
                                                     // Convert peer ID
                                                     let gossip_peer_id = ant_peer_id_to_gossip(&peer_id);
 
-                                                    // Track peer
+                                                    // Track peer with real address
                                                     let mut peers = peers_uni.write().await;
-                                                    let peer_addr = SocketAddr::from(([127, 0, 0, 1], 8080));
                                                     peers.insert(gossip_peer_id, (peer_addr, Instant::now()));
                                                     drop(peers);
 
@@ -379,9 +454,9 @@ impl AntQuicTransport {
                                                         Bytes::new()
                                                     };
 
-                                                    // Forward to recv channel
-                                                    if let Err(e) = tx_uni.send((gossip_peer_id, stream_type, payload)) {
-                                                        error!("Failed to forward message: {}", e);
+                                                    // Forward to recv channel (bounded, may apply backpressure)
+                                                    if let Err(e) = tx_uni.send((gossip_peer_id, stream_type, payload)).await {
+                                                        error!("Failed to forward message (channel closed): {}", e);
                                                         break;
                                                     }
 
@@ -411,14 +486,15 @@ impl AntQuicTransport {
                             let conn_bi = connection.clone();
                             let tx_bi = recv_tx.clone();
                             let peers_bi = Arc::clone(&connected_peers);
+                            let read_limit_bi = stream_read_limit;
                             tokio::spawn(async move {
                                 loop {
                                     match conn_bi.accept_bi().await {
                                         Ok((_send_stream, mut recv_stream)) => {
                                             debug!("Accepted bidirectional stream from {:?}", peer_id);
 
-                                            // Read data from stream (100MB limit)
-                                            match recv_stream.read_to_end(100 * 1024 * 1024).await {
+                                            // Read data from stream with configurable limit
+                                            match recv_stream.read_to_end(read_limit_bi).await {
                                                 Ok(data) => {
                                                     if data.is_empty() {
                                                         continue;
@@ -426,8 +502,8 @@ impl AntQuicTransport {
 
                                                     let gossip_peer_id = ant_peer_id_to_gossip(&peer_id);
 
+                                                    // Track peer with real address
                                                     let mut peers = peers_bi.write().await;
-                                                    let peer_addr = SocketAddr::from(([127, 0, 0, 1], 8080));
                                                     peers.insert(gossip_peer_id, (peer_addr, Instant::now()));
                                                     drop(peers);
 
@@ -448,8 +524,9 @@ impl AntQuicTransport {
                                                         Bytes::new()
                                                     };
 
-                                                    if let Err(e) = tx_bi.send((gossip_peer_id, stream_type, payload)) {
-                                                        error!("Failed to forward message: {}", e);
+                                                    // Forward to recv channel (bounded, may apply backpressure)
+                                                    if let Err(e) = tx_bi.send((gossip_peer_id, stream_type, payload)).await {
+                                                        error!("Failed to forward message (channel closed): {}", e);
                                                         break;
                                                     }
                                                 }
@@ -473,6 +550,44 @@ impl AntQuicTransport {
 
                 // Wait before checking for new peers
                 tokio::time::sleep(Duration::from_millis(500)).await;
+            }
+        });
+    }
+
+    /// Spawn background task to periodically clean up stale peer connections
+    ///
+    /// Removes peers that haven't been seen within the configured peer_timeout duration.
+    /// This prevents memory leaks and allows peers to reconnect after being idle.
+    fn spawn_cleanup_task(&self) {
+        let connected_peers = Arc::clone(&self.connected_peers);
+        let peer_timeout = self.config.peer_timeout;
+
+        tokio::spawn(async move {
+            info!("Peer cleanup task started (timeout: {:?})", peer_timeout);
+
+            loop {
+                // Wait before cleanup cycle (run every 30 seconds)
+                tokio::time::sleep(Duration::from_secs(30)).await;
+
+                let now = Instant::now();
+                let mut peers = connected_peers.write().await;
+
+                let initial_count = peers.len();
+                peers.retain(|peer_id, (_addr, last_seen)| {
+                    let elapsed = now.duration_since(*last_seen);
+                    let keep = elapsed < peer_timeout;
+
+                    if !keep {
+                        debug!("Removing stale peer {:?} (last seen {:?} ago)", peer_id, elapsed);
+                    }
+
+                    keep
+                });
+
+                let removed_count = initial_count.saturating_sub(peers.len());
+                if removed_count > 0 {
+                    info!("Cleaned up {} stale peer(s), {} remaining", removed_count, peers.len());
+                }
             }
         });
     }
