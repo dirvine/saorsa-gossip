@@ -40,10 +40,10 @@ pub struct AntQuicTransportConfig {
     pub bootstrap_nodes: Vec<SocketAddr>,
     /// Channel capacity for backpressure (default: 10,000 messages)
     pub channel_capacity: usize,
-    /// Peer timeout for cleanup (default: 5 minutes)
-    pub peer_timeout: Duration,
     /// Maximum bytes to read per stream (default: 100 MB)
     pub stream_read_limit: usize,
+    /// Maximum number of peers to track (default: 1,000)
+    pub max_peers: usize,
 }
 
 impl AntQuicTransportConfig {
@@ -54,8 +54,8 @@ impl AntQuicTransportConfig {
             role,
             bootstrap_nodes,
             channel_capacity: 10_000,
-            peer_timeout: Duration::from_secs(300), // 5 minutes
             stream_read_limit: 100 * 1024 * 1024, // 100 MB
+            max_peers: 1_000,
         }
     }
 
@@ -65,15 +65,15 @@ impl AntQuicTransportConfig {
         self
     }
 
-    /// Set peer timeout for cleanup
-    pub fn with_peer_timeout(mut self, timeout: Duration) -> Self {
-        self.peer_timeout = timeout;
-        self
-    }
-
     /// Set stream read limit
     pub fn with_stream_read_limit(mut self, limit: usize) -> Self {
         self.stream_read_limit = limit;
+        self
+    }
+
+    /// Set maximum number of peers to track
+    pub fn with_max_peers(mut self, max: usize) -> Self {
+        self.max_peers = max;
         self
     }
 }
@@ -157,8 +157,8 @@ impl AntQuicTransport {
             config.bind_addr, config.role
         );
         info!("Peer ID: {:?}", ant_peer_id);
-        info!("Config: channel_capacity={}, peer_timeout={:?}, stream_read_limit={}",
-            config.channel_capacity, config.peer_timeout, config.stream_read_limit);
+        info!("Config: channel_capacity={}, max_peers={}, stream_read_limit={}",
+            config.channel_capacity, config.max_peers, config.stream_read_limit);
 
         // Create QuicP2PNode configuration
         let node_config = QuicNodeConfig {
@@ -197,9 +197,6 @@ impl AntQuicTransport {
 
         // Start receiving loop
         transport.spawn_receiver();
-
-        // Start peer cleanup task
-        transport.spawn_cleanup_task();
 
         // If this is a Client node with bootstrap coordinators, establish connections
         if matches!(config.role, EndpointRole::Client) && !config.bootstrap_nodes.is_empty() {
@@ -342,6 +339,7 @@ impl AntQuicTransport {
         let recv_tx = self.recv_tx.clone();
         let connected_peers = Arc::clone(&self.connected_peers);
         let stream_read_limit = self.config.stream_read_limit;
+        let max_peers = self.config.max_peers;
 
         tokio::spawn(async move {
             info!("Ant-QUIC direct stream receiver task started");
@@ -372,12 +370,9 @@ impl AntQuicTransport {
                             })
                             .collect();
 
-                        // Update tracking map
-                        {
-                            let mut peers_map = connected_peers.write().await;
-                            for (_, gossip_id, addr) in &peer_data {
-                                peers_map.insert(*gossip_id, (*addr, Instant::now()));
-                            }
+                        // Update tracking map with LRU eviction
+                        for (_, gossip_id, addr) in &peer_data {
+                            add_peer_with_lru(&connected_peers, *gossip_id, *addr, max_peers).await;
                         }
 
                         // Return just peer IDs
@@ -408,6 +403,8 @@ impl AntQuicTransport {
                             let tx_uni = recv_tx.clone();
                             let peers_uni = Arc::clone(&connected_peers);
                             let read_limit_uni = stream_read_limit;
+                            let max_peers_uni = max_peers;
+                            let peer_addr_uni = peer_addr;
                             tokio::spawn(async move {
                                 loop {
                                     match conn_uni.accept_uni().await {
@@ -427,10 +424,8 @@ impl AntQuicTransport {
                                                     // Convert peer ID
                                                     let gossip_peer_id = ant_peer_id_to_gossip(&peer_id);
 
-                                                    // Track peer with real address
-                                                    let mut peers = peers_uni.write().await;
-                                                    peers.insert(gossip_peer_id, (peer_addr, Instant::now()));
-                                                    drop(peers);
+                                                    // Track peer with real address (with LRU eviction)
+                                                    add_peer_with_lru(&peers_uni, gossip_peer_id, peer_addr_uni, max_peers_uni).await;
 
                                                     // Parse stream type from first byte
                                                     let stream_type = match data.first() {
@@ -487,6 +482,8 @@ impl AntQuicTransport {
                             let tx_bi = recv_tx.clone();
                             let peers_bi = Arc::clone(&connected_peers);
                             let read_limit_bi = stream_read_limit;
+                            let max_peers_bi = max_peers;
+                            let peer_addr_bi = peer_addr;
                             tokio::spawn(async move {
                                 loop {
                                     match conn_bi.accept_bi().await {
@@ -502,10 +499,8 @@ impl AntQuicTransport {
 
                                                     let gossip_peer_id = ant_peer_id_to_gossip(&peer_id);
 
-                                                    // Track peer with real address
-                                                    let mut peers = peers_bi.write().await;
-                                                    peers.insert(gossip_peer_id, (peer_addr, Instant::now()));
-                                                    drop(peers);
+                                                    // Track peer with real address (with LRU eviction)
+                                                    add_peer_with_lru(&peers_bi, gossip_peer_id, peer_addr_bi, max_peers_bi).await;
 
                                                     let stream_type = match data.first() {
                                                         Some(&0) => StreamType::Membership,
@@ -554,43 +549,72 @@ impl AntQuicTransport {
         });
     }
 
-    /// Spawn background task to periodically clean up stale peer connections
+    /// Add or update a peer in the connected peers map with LRU eviction
     ///
-    /// Removes peers that haven't been seen within the configured peer_timeout duration.
-    /// This prevents memory leaks and allows peers to reconnect after being idle.
-    fn spawn_cleanup_task(&self) {
-        let connected_peers = Arc::clone(&self.connected_peers);
-        let peer_timeout = self.config.peer_timeout;
+    /// Automatically evicts the oldest peer if the limit is reached
+    async fn add_peer(&self, peer_id: GossipPeerId, addr: SocketAddr) {
+        let mut peers = self.connected_peers.write().await;
 
-        tokio::spawn(async move {
-            info!("Peer cleanup task started (timeout: {:?})", peer_timeout);
-
-            loop {
-                // Wait before cleanup cycle (run every 30 seconds)
-                tokio::time::sleep(Duration::from_secs(30)).await;
-
-                let now = Instant::now();
-                let mut peers = connected_peers.write().await;
-
-                let initial_count = peers.len();
-                peers.retain(|peer_id, (_addr, last_seen)| {
-                    let elapsed = now.duration_since(*last_seen);
-                    let keep = elapsed < peer_timeout;
-
-                    if !keep {
-                        debug!("Removing stale peer {:?} (last seen {:?} ago)", peer_id, elapsed);
-                    }
-
-                    keep
-                });
-
-                let removed_count = initial_count.saturating_sub(peers.len());
-                if removed_count > 0 {
-                    info!("Cleaned up {} stale peer(s), {} remaining", removed_count, peers.len());
-                }
+        // If at capacity and this is a new peer, evict the oldest one
+        if peers.len() >= self.config.max_peers && !peers.contains_key(&peer_id) {
+            // Find the peer with the oldest last_seen time (LRU)
+            if let Some((oldest_peer_id, _)) = peers
+                .iter()
+                .min_by_key(|(_peer_id, (_addr, last_seen))| last_seen)
+                .map(|(peer_id, data)| (*peer_id, data))
+            {
+                peers.remove(&oldest_peer_id);
+                info!(
+                    "Evicted oldest peer {:?} to make room for {:?} (limit: {})",
+                    oldest_peer_id, peer_id, self.config.max_peers
+                );
             }
-        });
+        }
+
+        // Add or update the peer with current timestamp
+        peers.insert(peer_id, (addr, Instant::now()));
     }
+
+    /// Remove a peer from the connected peers map (event-driven cleanup)
+    ///
+    /// Called when a connection to a peer fails
+    async fn remove_peer(&self, peer_id: &GossipPeerId) {
+        let mut peers = self.connected_peers.write().await;
+        if peers.remove(peer_id).is_some() {
+            debug!("Removed peer {:?} after connection failure", peer_id);
+        }
+    }
+}
+
+/// Add a peer with LRU eviction (standalone helper for use in spawned tasks)
+///
+/// Automatically evicts the oldest peer if the limit is reached
+async fn add_peer_with_lru(
+    peers: &Arc<RwLock<HashMap<GossipPeerId, (SocketAddr, Instant)>>>,
+    peer_id: GossipPeerId,
+    addr: SocketAddr,
+    max_peers: usize,
+) {
+    let mut peer_map = peers.write().await;
+
+    // If at capacity and this is a new peer, evict the oldest one
+    if peer_map.len() >= max_peers && !peer_map.contains_key(&peer_id) {
+        // Find the peer with the oldest last_seen time (LRU)
+        if let Some((oldest_peer_id, _)) = peer_map
+            .iter()
+            .min_by_key(|(_peer_id, (_addr, last_seen))| last_seen)
+            .map(|(peer_id, data)| (*peer_id, data))
+        {
+            peer_map.remove(&oldest_peer_id);
+            info!(
+                "Evicted oldest peer {:?} to make room for {:?} (limit: {})",
+                oldest_peer_id, peer_id, max_peers
+            );
+        }
+    }
+
+    // Add or update the peer with current timestamp
+    peer_map.insert(peer_id, (addr, Instant::now()));
 }
 
 /// Convert ant-quic PeerId to Gossip PeerId
@@ -620,13 +644,18 @@ impl GossipTransport for AntQuicTransport {
             .ok_or_else(|| anyhow!("No bootstrap coordinators available"))?;
 
         // Connect to peer via coordinator
-        self.node
-            .connect_to_peer(ant_peer_id, *coordinator)
-            .await
-            .map_err(|e| anyhow!("Failed to connect to peer: {}", e))?;
-
-        info!("Successfully connected to peer {}", peer);
-        Ok(())
+        match self.node.connect_to_peer(ant_peer_id, *coordinator).await {
+            Ok(_) => {
+                info!("Successfully connected to peer {}", peer);
+                Ok(())
+            }
+            Err(e) => {
+                // Connection failed - remove peer from cache (event-driven cleanup)
+                warn!("Failed to connect to peer {}: {}", peer, e);
+                self.remove_peer(&peer).await;
+                Err(anyhow!("Failed to connect to peer: {}", e))
+            }
+        }
     }
 
     async fn listen(&self, _bind: SocketAddr) -> Result<()> {
@@ -678,15 +707,12 @@ impl GossipTransport for AntQuicTransport {
 
         match send_result {
             Ok(()) => {
-                // Track successful connection
-                let mut connected_peers = self.connected_peers.write().await;
-
                 // For now, use a placeholder address - in a production implementation,
                 // this would be obtained from the ant-quic connection metadata
                 let peer_addr = SocketAddr::from(([127, 0, 0, 1], 8080));
 
-                connected_peers.insert(peer, (peer_addr, Instant::now()));
-                drop(connected_peers);
+                // Track successful connection (with LRU eviction)
+                self.add_peer(peer, peer_addr).await;
 
                 // Update peer cache on success
                 if let Some(cache) = &self.peer_cache {
