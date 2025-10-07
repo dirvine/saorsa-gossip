@@ -93,13 +93,29 @@ jobs:
             saorsa-gossip${{ matrix.suffix }} `
             saorsa-gossip-coordinator${{ matrix.suffix }}
 
-      - name: Upload Release Assets
-        uses: softprops/action-gh-release@v1
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
         with:
-          files: |
+          name: saorsa-gossip-${{ matrix.target }}
+          path: |
             saorsa-gossip-${{ matrix.target }}${{ matrix.archive_ext }}
             target/${{ matrix.target }}/release/saorsa-gossip${{ matrix.suffix }}
             target/${{ matrix.target }}/release/saorsa-gossip-coordinator${{ matrix.suffix }}
+
+  create-release:
+    name: Create Release
+    needs: build-release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: artifacts/**/*
           draft: false
           prerelease: false
           generate_release_notes: true
