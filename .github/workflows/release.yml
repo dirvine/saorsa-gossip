@@ -6,53 +6,38 @@ on:
       - 'v*.*.*'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  create-release:
-    name: Create Release
-    runs-on: ubuntu-latest
-    outputs:
-      upload_url: ${{ steps.create_release.outputs.upload_url }}
-      version: ${{ steps.get_version.outputs.version }}
-    steps:
-      - name: Get version from tag
-        id: get_version
-        run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
-
-      - name: Create Release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ github.ref }}
-          release_name: Release ${{ github.ref }}
-          draft: false
-          prerelease: false
-
   build-release:
     name: Build Release
-    needs: create-release
     strategy:
       matrix:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             suffix: ''
+            archive_ext: '.tar.gz'
           - os: ubuntu-latest
             target: x86_64-unknown-linux-musl
             suffix: ''
+            archive_ext: '.tar.gz'
           - os: macos-latest
             target: x86_64-apple-darwin
             suffix: ''
+            archive_ext: '.tar.gz'
           - os: macos-latest
             target: aarch64-apple-darwin
             suffix: ''
+            archive_ext: '.tar.gz'
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             suffix: '.exe'
+            archive_ext: '.zip'
 
     runs-on: ${{ matrix.os }}
 
@@ -96,7 +81,7 @@ jobs:
         if: matrix.os != 'windows-latest'
         run: |
           cd target/${{ matrix.target }}/release
-          tar czf saorsa-gossip-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.tar.gz \
+          tar czf ../../../saorsa-gossip-${{ matrix.target }}${{ matrix.archive_ext }} \
             saorsa-gossip${{ matrix.suffix }} \
             saorsa-gossip-coordinator${{ matrix.suffix }}
 
@@ -104,72 +89,17 @@ jobs:
         if: matrix.os == 'windows-latest'
         run: |
           cd target/${{ matrix.target }}/release
-          7z a saorsa-gossip-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.zip `
+          7z a ../../../saorsa-gossip-${{ matrix.target }}${{ matrix.archive_ext }} `
             saorsa-gossip${{ matrix.suffix }} `
             saorsa-gossip-coordinator${{ matrix.suffix }}
 
-      - name: Upload CLI binary (Unix)
-        if: matrix.os != 'windows-latest'
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload Release Assets
+        uses: softprops/action-gh-release@v1
         with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ./target/${{ matrix.target }}/release/saorsa-gossip${{ matrix.suffix }}
-          asset_name: saorsa-gossip-${{ matrix.target }}${{ matrix.suffix }}
-          asset_content_type: application/octet-stream
-
-      - name: Upload CLI binary (Windows)
-        if: matrix.os == 'windows-latest'
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ./target/${{ matrix.target }}/release/saorsa-gossip${{ matrix.suffix }}
-          asset_name: saorsa-gossip-${{ matrix.target }}${{ matrix.suffix }}
-          asset_content_type: application/octet-stream
-
-      - name: Upload Coordinator binary (Unix)
-        if: matrix.os != 'windows-latest'
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ./target/${{ matrix.target }}/release/saorsa-gossip-coordinator${{ matrix.suffix }}
-          asset_name: saorsa-gossip-coordinator-${{ matrix.target }}${{ matrix.suffix }}
-          asset_content_type: application/octet-stream
-
-      - name: Upload Coordinator binary (Windows)
-        if: matrix.os == 'windows-latest'
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ./target/${{ matrix.target }}/release/saorsa-gossip-coordinator${{ matrix.suffix }}
-          asset_name: saorsa-gossip-coordinator-${{ matrix.target }}${{ matrix.suffix }}
-          asset_content_type: application/octet-stream
-
-      - name: Upload archive (Unix)
-        if: matrix.os != 'windows-latest'
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ./target/${{ matrix.target }}/release/saorsa-gossip-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.tar.gz
-          asset_name: saorsa-gossip-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.tar.gz
-          asset_content_type: application/gzip
-
-      - name: Upload archive (Windows)
-        if: matrix.os == 'windows-latest'
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ./target/${{ matrix.target }}/release/saorsa-gossip-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.zip
-          asset_name: saorsa-gossip-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.zip
-          asset_content_type: application/zip
+          files: |
+            saorsa-gossip-${{ matrix.target }}${{ matrix.archive_ext }}
+            target/${{ matrix.target }}/release/saorsa-gossip${{ matrix.suffix }}
+            target/${{ matrix.target }}/release/saorsa-gossip-coordinator${{ matrix.suffix }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
