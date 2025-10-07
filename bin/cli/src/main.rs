@@ -25,6 +25,8 @@ use anyhow::{anyhow, Result};
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
+mod updater;
+
 /// Saorsa Gossip CLI - Demonstrate and test gossip network features
 #[derive(Parser, Debug)]
 #[command(name = "saorsa-gossip")]
@@ -91,6 +93,13 @@ enum Commands {
         /// Demo scenario to run
         #[arg(short, long, default_value = "basic")]
         scenario: String,
+    },
+
+    /// Check for and install updates
+    Update {
+        /// Check for updates without installing
+        #[arg(short, long)]
+        check_only: bool,
     },
 }
 
@@ -286,6 +295,11 @@ async fn main() -> Result<()> {
     // Ensure config directory exists
     tokio::fs::create_dir_all(&config_dir).await?;
 
+    // Perform silent update check (rate-limited) for all commands except 'update'
+    if !matches!(args.command, Commands::Update { .. }) {
+        updater::silent_update_check(&config_dir).await;
+    }
+
     // Route to command handlers
     match args.command {
         Commands::Identity { action } => handle_identity(action, &config_dir).await?,
@@ -296,6 +310,7 @@ async fn main() -> Result<()> {
         Commands::Crdt { action } => handle_crdt(action, &config_dir).await?,
         Commands::Rendezvous { action } => handle_rendezvous(action, &config_dir).await?,
         Commands::Demo { scenario } => handle_demo(&scenario, &config_dir).await?,
+        Commands::Update { check_only } => handle_update(check_only).await?,
     }
 
     Ok(())
@@ -612,6 +627,25 @@ fn path_to_string(path: &std::path::Path) -> Result<String> {
     path.to_str()
         .map(str::to_owned)
         .ok_or_else(|| anyhow!("Path contains invalid UTF-8: {}", path.display()))
+}
+
+/// Handle update command
+async fn handle_update(check_only: bool) -> Result<()> {
+    if check_only {
+        println!("🔍 Checking for updates...");
+        match updater::check_for_update().await? {
+            Some(new_version) => {
+                println!("✓ Update available: {}", new_version);
+                println!("  Run 'saorsa-gossip update' to install");
+            }
+            None => {
+                println!("✓ Already on latest version: {}", env!("CARGO_PKG_VERSION"));
+            }
+        }
+    } else {
+        updater::perform_update().await?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]

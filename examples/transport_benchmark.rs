@@ -39,6 +39,7 @@ const MESSAGE_SIZES: &[usize] = &[
     100 * 1024 * 1024, // 100 MB
 ];
 
+#[allow(dead_code)]
 const CONCURRENT_CONNECTIONS: &[usize] = &[1, 5, 10, 20];
 const MESSAGES_PER_SIZE: usize = 10;
 
@@ -63,8 +64,11 @@ struct BenchmarkSummary {
     successful_messages: usize,
     failed_messages: usize,
     total_bytes_sent: usize,
+    #[allow(dead_code)]
     total_duration: Duration,
+    #[allow(dead_code)]
     avg_throughput_mbps: f64,
+    #[allow(dead_code)]
     avg_throughput_mbytes: f64,
     connection_stats: Vec<ConnectionStats>,
     results: Vec<BenchmarkResult>,

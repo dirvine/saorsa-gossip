@@ -18,6 +18,8 @@ use clap::Parser;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 
+mod updater;
+
 /// Saorsa Gossip Coordinator Node
 #[derive(Parser, Debug)]
 #[command(name = "saorsa-coordinator")]
@@ -109,7 +111,11 @@ async fn main() -> Result<()> {
 
     tracing::info!("Coordinator node running. Press Ctrl+C to stop.");
 
-    // 4. Start message handling loop
+    // 4. Start background update checker
+    tracing::info!("Starting background update checker (checks every 6 hours)...");
+    updater::start_background_checker();
+
+    // 5. Start message handling loop
     let transport = std::sync::Arc::new(transport);
     let transport_clone = transport.clone();
 
@@ -117,7 +123,7 @@ async fn main() -> Result<()> {
         handle_messages(transport_clone).await;
     });
 
-    // 3. Wait for shutdown signal
+    // 6. Wait for shutdown signal
     tokio::signal::ctrl_c().await?;
     tracing::info!("Shutting down coordinator...");
 
