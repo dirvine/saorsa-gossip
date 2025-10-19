@@ -10,13 +10,16 @@ members = [
     "crates/identity",
     "crates/coordinator",
     "crates/rendezvous",
+    "crates/simulator",
+    "crates/load-test",
     "bin/coordinator",
     "bin/cli",
+    "tests",
 ]
 resolver = "2"
 
 [workspace.package]
-version = "0.1.7"
+version = "0.1.8"
 edition = "2021"
 authors = ["David Irvine <david@saorsa.com>"]
 license = "MIT OR Apache-2.0"

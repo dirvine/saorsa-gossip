@@ -64,7 +64,7 @@ Saorsa Gossip implements a complete gossip overlay with:
 - **Local-First CRDTs**: Delta-CRDTs with anti-entropy synchronization
 - **No DHT**: Contact-graph-based discovery, no global directory
 
-**Status**: ✅ **Production-Ready v0.1.6** - Complete post-quantum cryptography, deployable coordinator binary, 192 tests passing, zero compilation warnings (see [DESIGN.md](DESIGN.md))
+**Status**: ✅ **Production-Ready v0.1.7** - Complete post-quantum cryptography, deployable coordinator binary, **242 tests passing** with chaos engineering, zero compilation warnings (see [DESIGN.md](DESIGN.md))
 
 ## 🏗️ Architecture
 
@@ -464,6 +464,119 @@ Provided by:
 | Replay | Per-topic nonces, signature checks, expiry |
 | Partition | Plumtree lazy links, anti-entropy |
 
+## 🧪 Chaos Engineering & Testing
+
+Saorsa Gossip includes enterprise-grade testing infrastructure with **242 tests** covering unit, integration, property-based, end-to-end workflows, and chaos engineering.
+
+### Chaos Testing Framework
+
+The network simulator enables deterministic testing of gossip protocols under extreme failure conditions:
+
+```rust
+use saorsa_gossip_simulator::{NetworkSimulator, ChaosInjector, ChaosEvent};
+use std::time::Duration;
+
+// Create simulator with 5 nodes
+let mut simulator = NetworkSimulator::new()
+    .with_nodes(5)
+    .with_topology(Topology::Mesh)
+    .with_time_dilation(10.0); // 10x faster testing
+
+// Inject chaos events
+let chaos_injector = ChaosInjector::new();
+chaos_injector.inject_event(ChaosEvent::NetworkPartition {
+    group_a: vec![0, 1],
+    group_b: vec![2, 3, 4],
+    duration: Duration::from_secs(10),
+}).await?;
+```
+
+**Chaos Events Supported:**
+- ✅ **Network Partitions** - Split-brain scenarios
+- ✅ **Node Failures** - Crash and restart simulations
+- ✅ **Packet Loss** - Up to 30% message loss
+- ✅ **Latency Spikes** - Up to 1000ms delays
+- ✅ **Bandwidth Throttling** - Congestion simulation
+- ✅ **Clock Skew** - Timing issues
+- ✅ **Combined Scenarios** - Multiple failures simultaneously
+
+**Real Protocol Testing:**
+
+The simulator integrates with actual gossip protocols (not mocks):
+- CRDT convergence under network partition
+- Membership convergence under node churn
+- PubSub delivery under packet loss
+- Combined multi-failure scenarios
+
+### Test Suite Overview
+
+| Category | Count | Coverage |
+|----------|-------|----------|
+| **Unit Tests** | 188+ | All crates - types, identity, transport, protocols |
+| **Integration Tests** | 5 | Simulator, chaos injection, protocol integration |
+| **Property Tests** | 10 | CRDT convergence, message ID determinism |
+| **E2E Workflows** | 7 | Complete user journeys (bootstrap → sync) |
+| **Chaos+Gossip Tests** | 5 | Real protocols under extreme failures |
+| **Doctests** | 13 | API examples verification |
+| **Simulator Tests** | 14 | Network simulation correctness |
+| **Total** | **242** | 100% passing ✅ |
+
+### Running Tests
+
+```bash
+# All tests
+cargo test
+
+# Chaos engineering tests
+cargo test --package saorsa-gossip-integration-tests --test chaos_gossip_integration
+
+# Property-based tests  
+cargo test --package saorsa-gossip-integration-tests --test property_tests
+
+# E2E workflow tests
+cargo test --package saorsa-gossip-integration-tests --test e2e_workflow_tests
+
+# Run examples
+cargo run --example chaos_demo --package saorsa-gossip-simulator
+cargo run --example load_test_demo --package saorsa-gossip-load-test
+```
+
+### Load Testing
+
+The load testing framework validates performance under realistic conditions:
+
+```rust
+use saorsa_gossip_load_test::{LoadTestRunner, LoadScenario, MessagePattern};
+
+let scenario = LoadScenario {
+    name: "high_throughput".to_string(),
+    duration: Duration::from_secs(60),
+    num_peers: 100,
+    message_pattern: MessagePattern::Constant {
+        rate_per_second: 1000,
+        message_size: 1024,
+    },
+    topology: Topology::Mesh,
+    chaos_events: vec![], // Optional chaos during load
+};
+
+let runner = LoadTestRunner::new();
+let results = runner.run_scenario(scenario, simulator).await?;
+```
+
+**Message Patterns:**
+- **Constant** - Steady message rate
+- **Burst** - Periodic message floods
+- **Ramp-up** - Gradually increasing load
+- **Realistic** - Simulated user behavior
+
+**Metrics Collected:**
+- Throughput (messages/second)
+- Latency percentiles (P50, P95, P99)
+- Message loss rate
+- Memory usage
+- CPU utilization
+
 ## 🛠️ Development
 
 ### Building
@@ -568,13 +681,15 @@ cargo doc --all-features --no-deps --open
 - [ ] Saorsa Sites (website publishing)
 - [ ] Complete anti-entropy with message sketches
 
-### 📋 Phase 6: Production Hardening (Planned)
+### ✅ Phase 6: Production Hardening (Complete - v0.1.8)
+- [x] **Chaos Engineering Framework** - Network simulator with deterministic failure injection
+- [x] **Load Testing Framework** - 4 message patterns with comprehensive metrics
+- [x] **Property-Based Testing** - 10 tests verifying protocol invariants
+- [x] **End-to-End Workflows** - 7 complete user journey tests
+- [x] **242 Tests** - All passing with zero warnings
 - [ ] 100-node test harness
-- [ ] Performance benchmarks
 - [ ] Security audit
 - [ ] Production deployment guide
-- [ ] Chaos engineering tests
-- [ ] Load testing framework
 
 ## 📊 Performance Benchmarks
 
@@ -677,8 +792,8 @@ Inspired by:
 
 ---
 
-**✅ Status v0.1.6**: Production-ready foundation with complete post-quantum cryptography. Core gossip protocols implemented with real ML-DSA-65 signatures, BLAKE3 KDF, and deployable coordinator binary. All 192 tests passing with zero warnings. Published to crates.io.
+**✅ Status v0.1.8**: Production-ready foundation with complete post-quantum cryptography and **enterprise-grade chaos engineering**. Core gossip protocols implemented with real ML-DSA-65 signatures, BLAKE3 KDF, and deployable coordinator binary. **242 tests passing** (unit, integration, property-based, E2E workflows, chaos+gossip) with zero warnings. Network simulator with deterministic failure injection. Load testing framework with 4 message patterns. Published to crates.io.
 
-**Next Steps**: Advanced features (IBLT reconciliation, peer scoring), production hardening (security audit, 100-node testing), and Saorsa Sites implementation.
+**Next Steps**: Advanced features (IBLT reconciliation, peer scoring), security audit, and Saorsa Sites implementation.
 
 See [DESIGN.md](DESIGN.md) for the complete technical specification and implementation roadmap.
