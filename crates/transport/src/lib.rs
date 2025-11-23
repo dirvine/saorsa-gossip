@@ -10,6 +10,7 @@ mod ant_quic_transport;
 mod peer_cache;
 
 pub use ant_quic_transport::{AntQuicTransport, AntQuicTransportConfig};
+pub use ant_quic::nat_traversal_api::EndpointRole;
 pub use peer_cache::{PeerCache, PeerCacheConfig, PeerCacheStats};
 
 use anyhow::Result;
