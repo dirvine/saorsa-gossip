@@ -44,6 +44,8 @@ pub struct AntQuicTransportConfig {
     pub stream_read_limit: usize,
     /// Maximum number of peers to track (default: 1,000)
     pub max_peers: usize,
+    /// Allow any key (Trust On First Use) - useful for P2P without PKI
+    pub allow_any_key: bool,
 }
 
 impl AntQuicTransportConfig {
@@ -60,6 +62,7 @@ impl AntQuicTransportConfig {
             channel_capacity: 10_000,
             stream_read_limit: 100 * 1024 * 1024, // 100 MB
             max_peers: 1_000,
+            allow_any_key: true, // Enable by default for P2P mesh
         }
     }
 
@@ -78,6 +81,12 @@ impl AntQuicTransportConfig {
     /// Set maximum number of peers to track
     pub fn with_max_peers(mut self, max: usize) -> Self {
         self.max_peers = max;
+        self
+    }
+
+    /// Set allow any key (TOFU)
+    pub fn with_allow_any_key(mut self, allow: bool) -> Self {
+        self.allow_any_key = allow;
         self
     }
 }
@@ -167,6 +176,11 @@ impl AntQuicTransport {
         );
 
         // Create QuicP2PNode configuration
+        let mut auth_config = AuthConfig::default();
+        if config.allow_any_key {
+            auth_config.require_authentication = false;
+        }
+
         let node_config = QuicNodeConfig {
             role: config.role,
             bootstrap_nodes: config.bootstrap_nodes.clone(),
@@ -174,7 +188,7 @@ impl AntQuicTransport {
             max_connections: 100,
             connection_timeout: Duration::from_secs(30),
             stats_interval: Duration::from_secs(60),
-            auth_config: AuthConfig::default(),
+            auth_config,
             bind_addr: Some(config.bind_addr),
         };
 
