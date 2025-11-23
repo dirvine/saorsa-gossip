@@ -711,6 +711,22 @@ impl GossipTransport for AntQuicTransport {
     async fn dial(&self, peer: GossipPeerId, addr: SocketAddr) -> Result<()> {
         info!("Dialing peer {} at {}", peer, addr);
 
+        // Try direct connection first (treat as bootstrap/server) if no coordinators configured
+        // This allows P2P mesh without a dedicated coordinator if peers are reachable
+        if self.bootstrap_nodes.is_empty() {
+            info!("No coordinators configured, attempting direct connection to {}", addr);
+            match self.node.connect_to_bootstrap(addr).await {
+                Ok(_) => {
+                    info!("Successfully connected directly to peer {}", peer);
+                    return Ok(());
+                }
+                Err(e) => {
+                    warn!("Direct connection failed: {}", e);
+                    // Fallthrough to see if we can try other methods (though likely none left)
+                }
+            }
+        }
+
         // Convert gossip PeerId to ant-quic PeerId
         let ant_peer_id = gossip_peer_id_to_ant(&peer);
 
