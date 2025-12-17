@@ -44,14 +44,14 @@
 
 pub mod simulated_transport;
 
+use rand::prelude::*;
+use rand_pcg::Pcg64;
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, Mutex, RwLock};
 use tokio::time::{self, Instant as TokioInstant};
-use rand::prelude::*;
-use rand_pcg::Pcg64;
-use serde::{Deserialize, Serialize};
 use tracing::{debug, info, trace, warn};
 
 /// Unique identifier for simulated nodes
@@ -105,10 +105,10 @@ pub struct LinkConfig {
 impl Default for LinkConfig {
     fn default() -> Self {
         Self {
-            latency_ms: 10,      // 10ms latency
-            bandwidth_bps: 0,    // Unlimited bandwidth
+            latency_ms: 10,        // 10ms latency
+            bandwidth_bps: 0,      // Unlimited bandwidth
             packet_loss_rate: 0.0, // No packet loss
-            jitter_ms: 0,        // No jitter
+            jitter_ms: 0,          // No jitter
         }
     }
 }
@@ -132,7 +132,12 @@ pub enum Topology {
 #[async_trait::async_trait]
 pub trait SimulatedTransport: Send + Sync {
     /// Send a message to another node
-    async fn send_to_node(&self, to: NodeId, payload: Vec<u8>, message_type: MessageType) -> Result<(), SimulatorError>;
+    async fn send_to_node(
+        &self,
+        to: NodeId,
+        payload: Vec<u8>,
+        message_type: MessageType,
+    ) -> Result<(), SimulatorError>;
 
     /// Receive a message (called by simulator)
     async fn receive_message(&self, message: SimulatedMessage) -> Result<(), SimulatorError>;
@@ -195,8 +200,6 @@ impl Clone for NetworkSimulator {
         }
     }
 }
-
-
 
 #[derive(thiserror::Error, Debug)]
 pub enum SimulatorError {
@@ -304,7 +307,13 @@ impl NetworkSimulator {
     }
 
     /// Send a message from one node to another
-    pub async fn send_message(&self, from: NodeId, to: NodeId, payload: Vec<u8>, message_type: MessageType) -> Result<(), SimulatorError> {
+    pub async fn send_message(
+        &self,
+        from: NodeId,
+        to: NodeId,
+        payload: Vec<u8>,
+        message_type: MessageType,
+    ) -> Result<(), SimulatorError> {
         if !*self.running.read().await {
             return Err(SimulatorError::NotRunning);
         }
@@ -314,7 +323,10 @@ impl NetworkSimulator {
 
         // Check for packet loss
         if rng.gen::<f64>() < config.packet_loss_rate {
-            debug!("Message dropped due to packet loss (from: {}, to: {})", from, to);
+            debug!(
+                "Message dropped due to packet loss (from: {}, to: {})",
+                from, to
+            );
             return Ok(()); // Silently drop
         }
 
@@ -324,7 +336,8 @@ impl NetworkSimulator {
         let delivery_delay = base_latency + jitter;
 
         // Apply time dilation
-        let dilated_delay = Duration::from_secs_f64(delivery_delay.as_secs_f64() / self.time_dilation);
+        let dilated_delay =
+            Duration::from_secs_f64(delivery_delay.as_secs_f64() / self.time_dilation);
 
         let delivery_time = TokioInstant::now() + dilated_delay;
 
@@ -353,7 +366,13 @@ impl NetworkSimulator {
             queue.make_contiguous().sort_by_key(|(time, _)| *time);
         }
 
-        trace!("Queued message {} from {} to {} for delivery at {:?}", message_id, from, to, delivery_time);
+        trace!(
+            "Queued message {} from {} to {} for delivery at {:?}",
+            message_id,
+            from,
+            to,
+            delivery_time
+        );
         Ok(())
     }
 
@@ -364,7 +383,11 @@ impl NetworkSimulator {
         // Initialize topology connections
         self.initialize_topology().await?;
 
-        info!("Network simulator started with {} nodes, time_dilation: {}", self.nodes.len(), self.time_dilation);
+        info!(
+            "Network simulator started with {} nodes, time_dilation: {}",
+            self.nodes.len(),
+            self.time_dilation
+        );
 
         // Start message delivery task
         let message_queue = self.message_queue.clone();
@@ -403,7 +426,12 @@ impl NetworkSimulator {
                     return Err(SimulatorError::InvalidTopology);
                 }
                 // Connect center to all other nodes
-                let _node_ids: Vec<NodeId> = self.nodes.keys().filter(|&&id| id != *center).copied().collect();
+                let _node_ids: Vec<NodeId> = self
+                    .nodes
+                    .keys()
+                    .filter(|&&id| id != *center)
+                    .copied()
+                    .collect();
                 // Connections are implicit in star topology
             }
             Topology::Ring => {
@@ -498,10 +526,7 @@ pub struct SimulatorStats {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ChaosEvent {
     /// Node completely fails and stops responding
-    NodeFailure {
-        node_id: NodeId,
-        duration: Duration,
-    },
+    NodeFailure { node_id: NodeId, duration: Duration },
 
     /// Network partition splits nodes into isolated groups
     NetworkPartition {
@@ -511,10 +536,7 @@ pub enum ChaosEvent {
     },
 
     /// Messages are dropped with specified probability
-    MessageLoss {
-        loss_rate: f64,
-        duration: Duration,
-    },
+    MessageLoss { loss_rate: f64, duration: Duration },
 
     /// Messages are corrupted (payload modified)
     MessageCorruption {
@@ -523,10 +545,7 @@ pub enum ChaosEvent {
     },
 
     /// Network latency spikes to high values
-    LatencySpike {
-        latency_ms: u64,
-        duration: Duration,
-    },
+    LatencySpike { latency_ms: u64, duration: Duration },
 
     /// Network bandwidth severely reduced
     BandwidthThrottling {
@@ -590,63 +609,80 @@ impl NetworkSimulator {
                 name: "network_degradation".to_string(),
                 duration: Duration::from_secs(60),
                 events: vec![
-                    (Duration::from_secs(10), ChaosEvent::LatencySpike {
-                        latency_ms: 200,
-                        duration: Duration::from_secs(20),
-                    }),
-                    (Duration::from_secs(30), ChaosEvent::MessageLoss {
-                        loss_rate: 0.1,
-                        duration: Duration::from_secs(15),
-                    }),
+                    (
+                        Duration::from_secs(10),
+                        ChaosEvent::LatencySpike {
+                            latency_ms: 200,
+                            duration: Duration::from_secs(20),
+                        },
+                    ),
+                    (
+                        Duration::from_secs(30),
+                        ChaosEvent::MessageLoss {
+                            loss_rate: 0.1,
+                            duration: Duration::from_secs(15),
+                        },
+                    ),
                 ],
             },
-
             // Node failure scenario
             ChaosScenario {
                 name: "node_failure".to_string(),
                 duration: Duration::from_secs(45),
-                events: vec![
-                    (Duration::from_secs(15), ChaosEvent::NodeFailure {
+                events: vec![(
+                    Duration::from_secs(15),
+                    ChaosEvent::NodeFailure {
                         node_id: 2,
                         duration: Duration::from_secs(10),
-                    }),
-                ],
+                    },
+                )],
             },
-
             // Network partition
             ChaosScenario {
                 name: "network_partition".to_string(),
                 duration: Duration::from_secs(50),
-                events: vec![
-                    (Duration::from_secs(20), ChaosEvent::NetworkPartition {
+                events: vec![(
+                    Duration::from_secs(20),
+                    ChaosEvent::NetworkPartition {
                         group_a: vec![0, 1],
                         group_b: vec![2, 3, 4],
                         duration: Duration::from_secs(15),
-                    }),
-                ],
+                    },
+                )],
             },
-
             // Extreme chaos
             ChaosScenario {
                 name: "extreme_chaos".to_string(),
                 duration: Duration::from_secs(90),
                 events: vec![
-                    (Duration::from_secs(5), ChaosEvent::MessageLoss {
-                        loss_rate: 0.2,
-                        duration: Duration::from_secs(30),
-                    }),
-                    (Duration::from_secs(10), ChaosEvent::LatencySpike {
-                        latency_ms: 500,
-                        duration: Duration::from_secs(25),
-                    }),
-                    (Duration::from_secs(15), ChaosEvent::BandwidthThrottling {
-                        bandwidth_bps: 50_000,
-                        duration: Duration::from_secs(20),
-                    }),
-                    (Duration::from_secs(35), ChaosEvent::NodeFailure {
-                        node_id: 1,
-                        duration: Duration::from_secs(15),
-                    }),
+                    (
+                        Duration::from_secs(5),
+                        ChaosEvent::MessageLoss {
+                            loss_rate: 0.2,
+                            duration: Duration::from_secs(30),
+                        },
+                    ),
+                    (
+                        Duration::from_secs(10),
+                        ChaosEvent::LatencySpike {
+                            latency_ms: 500,
+                            duration: Duration::from_secs(25),
+                        },
+                    ),
+                    (
+                        Duration::from_secs(15),
+                        ChaosEvent::BandwidthThrottling {
+                            bandwidth_bps: 50_000,
+                            duration: Duration::from_secs(20),
+                        },
+                    ),
+                    (
+                        Duration::from_secs(35),
+                        ChaosEvent::NodeFailure {
+                            node_id: 1,
+                            duration: Duration::from_secs(15),
+                        },
+                    ),
                 ],
             },
         ]
@@ -701,7 +737,11 @@ impl ChaosInjector {
     }
 
     /// Run a complete chaos scenario
-    pub async fn run_scenario(&self, scenario: ChaosScenario, simulator: Arc<RwLock<NetworkSimulator>>) -> Result<(), SimulatorError> {
+    pub async fn run_scenario(
+        &self,
+        scenario: ChaosScenario,
+        simulator: Arc<RwLock<NetworkSimulator>>,
+    ) -> Result<(), SimulatorError> {
         info!("Starting chaos scenario: {}", scenario.name);
 
         self.enable().await;
@@ -732,7 +772,10 @@ impl ChaosInjector {
     }
 
     /// Apply currently active chaos events to the simulation
-    async fn apply_active_chaos(&self, simulator: &Arc<RwLock<NetworkSimulator>>) -> Result<(), SimulatorError> {
+    async fn apply_active_chaos(
+        &self,
+        simulator: &Arc<RwLock<NetworkSimulator>>,
+    ) -> Result<(), SimulatorError> {
         let active_events = self.active_events.read().await.clone();
         let now = TokioInstant::now();
 
@@ -758,7 +801,11 @@ impl ChaosInjector {
     }
 
     /// Apply a specific chaos event
-    async fn apply_chaos_event(&self, simulator: &Arc<RwLock<NetworkSimulator>>, event: &ChaosEvent) -> Result<(), SimulatorError> {
+    async fn apply_chaos_event(
+        &self,
+        simulator: &Arc<RwLock<NetworkSimulator>>,
+        event: &ChaosEvent,
+    ) -> Result<(), SimulatorError> {
         match event {
             ChaosEvent::NodeFailure { node_id, .. } => {
                 // Mark node as failed - messages to/from this node are dropped
@@ -780,7 +827,9 @@ impl ChaosInjector {
                 };
                 sim.set_link_config_all(new_config);
             }
-            ChaosEvent::MessageCorruption { corruption_rate, .. } => {
+            ChaosEvent::MessageCorruption {
+                corruption_rate, ..
+            } => {
                 // Messages get corrupted with given probability
                 debug!("Applying message corruption: {}%", corruption_rate * 100.0);
                 // This would require extending message delivery to corrupt payloads
@@ -805,13 +854,20 @@ impl ChaosInjector {
                 };
                 sim.set_link_config_all(new_config);
             }
-            ChaosEvent::ClockSkew { node_id, offset_ms, .. } => {
+            ChaosEvent::ClockSkew {
+                node_id, offset_ms, ..
+            } => {
                 // Introduce clock skew for specific node
                 debug!("Applying clock skew to node {}: {}ms", node_id, offset_ms);
                 // This would require per-node timing adjustments
             }
-            ChaosEvent::Custom { name, parameters, .. } => {
-                debug!("Applying custom chaos event: {} with params {:?}", name, parameters);
+            ChaosEvent::Custom {
+                name, parameters, ..
+            } => {
+                debug!(
+                    "Applying custom chaos event: {} with params {:?}",
+                    name, parameters
+                );
                 // Custom event handling
             }
         }
@@ -873,7 +929,12 @@ impl MockTransport {
 
 #[async_trait::async_trait]
 impl SimulatedTransport for MockTransport {
-    async fn send_to_node(&self, to: NodeId, payload: Vec<u8>, message_type: MessageType) -> Result<(), SimulatorError> {
+    async fn send_to_node(
+        &self,
+        to: NodeId,
+        payload: Vec<u8>,
+        message_type: MessageType,
+    ) -> Result<(), SimulatorError> {
         let message = SimulatedMessage {
             from: self.node_id,
             to,
@@ -883,7 +944,8 @@ impl SimulatedTransport for MockTransport {
             id: 0, // Will be set by simulator
         };
 
-        self.sender.send(message)
+        self.sender
+            .send(message)
             .map_err(|_| SimulatorError::DeliveryFailed("Channel closed".to_string()))
     }
 

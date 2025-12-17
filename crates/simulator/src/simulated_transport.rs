@@ -4,17 +4,17 @@
 //! the network simulator with actual gossip protocols, allowing
 //! realistic chaos testing of membership, pubsub, and CRDT protocols.
 
+use anyhow::{anyhow, Result};
+use bytes::Bytes;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tokio::sync::{mpsc, RwLock, Mutex};
-use bytes::Bytes;
-use anyhow::{anyhow, Result};
+use tokio::sync::{mpsc, Mutex, RwLock};
 
-use saorsa_gossip_types::PeerId;
 use saorsa_gossip_transport::{GossipTransport, StreamType};
+use saorsa_gossip_types::PeerId;
 
-use crate::{NetworkSimulator, MessageType, SimulatedMessage, NodeId};
+use crate::{MessageType, NetworkSimulator, NodeId, SimulatedMessage};
 
 /// Maps PeerId to simulator NodeId
 type PeerMap = HashMap<PeerId, NodeId>;
@@ -50,7 +50,7 @@ impl SimulatedGossipTransport {
         node_to_peer: Arc<RwLock<NodePeerMap>>,
     ) -> Self {
         let (sender, receiver) = mpsc::unbounded_channel();
-        
+
         Self {
             peer_id,
             node_id,
@@ -83,8 +83,8 @@ impl SimulatedGossipTransport {
             MessageType::Membership => StreamType::Membership,
             MessageType::PubSub => StreamType::PubSub,
             MessageType::CrdtSync => StreamType::Bulk,
-            MessageType::Presence => StreamType::Bulk,  // Map to Bulk stream
-            MessageType::Control => StreamType::Membership,  // Map to Membership stream
+            MessageType::Presence => StreamType::Bulk, // Map to Bulk stream
+            MessageType::Control => StreamType::Membership, // Map to Membership stream
         }
     }
 }
@@ -114,26 +114,18 @@ impl GossipTransport for SimulatedGossipTransport {
         Ok(())
     }
 
-    async fn send_to_peer(
-        &self,
-        peer: PeerId,
-        stream_type: StreamType,
-        data: Bytes,
-    ) -> Result<()> {
+    async fn send_to_peer(&self, peer: PeerId, stream_type: StreamType, data: Bytes) -> Result<()> {
         // Look up the target node ID
         let node_map = self.peer_to_node.read().await;
-        let target_node = node_map.get(&peer)
+        let target_node = node_map
+            .get(&peer)
             .ok_or_else(|| anyhow!("Unknown peer: {:?}", peer))?;
 
         // Send through the simulator
         let message_type = Self::stream_to_message_type(stream_type);
         let sim = self.simulator.read().await;
-        sim.send_message(
-            self.node_id,
-            *target_node,
-            data.to_vec(),
-            message_type,
-        ).await?;
+        sim.send_message(self.node_id, *target_node, data.to_vec(), message_type)
+            .await?;
 
         Ok(())
     }
@@ -141,7 +133,9 @@ impl GossipTransport for SimulatedGossipTransport {
     async fn receive_message(&self) -> Result<(PeerId, StreamType, Bytes)> {
         // Wait for a message from the channel
         let mut receiver = self.receiver.lock().await;
-        receiver.recv().await
+        receiver
+            .recv()
+            .await
             .ok_or_else(|| anyhow!("Transport closed"))
     }
 }
@@ -185,12 +179,22 @@ impl SimulatedGossipNetwork {
 
     /// Start the simulator
     pub async fn start(&mut self) -> Result<()> {
-        self.simulator.write().await.start().await.map_err(|e| anyhow!("{:?}", e))
+        self.simulator
+            .write()
+            .await
+            .start()
+            .await
+            .map_err(|e| anyhow!("{:?}", e))
     }
 
     /// Stop the simulator
     pub async fn stop(&mut self) -> Result<()> {
-        self.simulator.write().await.stop().await.map_err(|e| anyhow!("{:?}", e))
+        self.simulator
+            .write()
+            .await
+            .stop()
+            .await
+            .map_err(|e| anyhow!("{:?}", e))
     }
 
     /// Get a reference to the simulator for chaos injection
@@ -208,15 +212,18 @@ impl SimulatedGossipNetwork {
     ) -> Result<()> {
         // Look up the peer IDs
         let node_map = self.node_to_peer.read().await;
-        let to_peer = node_map.get(&to_node)
+        let to_peer = node_map
+            .get(&to_node)
             .ok_or_else(|| anyhow!("Unknown node: {}", to_node))?;
-        let from_peer = node_map.get(&from_node)
+        let from_peer = node_map
+            .get(&from_node)
             .ok_or_else(|| anyhow!("Unknown node: {}", from_node))?;
 
         // Find the transport and deliver
         for transport in &self.transports {
             if transport.peer_id == *to_peer {
-                let stream_type = SimulatedGossipTransport::message_type_to_stream(message.message_type);
+                let stream_type =
+                    SimulatedGossipTransport::message_type_to_stream(message.message_type);
                 let bytes = Bytes::from(message.payload);
                 transport.sender.send((*from_peer, stream_type, bytes))?;
                 return Ok(());
@@ -267,7 +274,10 @@ mod tests {
 
         // Send a message from peer1 to peer2
         let message = Bytes::from("Hello, peer2!");
-        transport1.send_to_peer(peer2, StreamType::PubSub, message.clone()).await.unwrap();
+        transport1
+            .send_to_peer(peer2, StreamType::PubSub, message.clone())
+            .await
+            .unwrap();
 
         // Note: In a real integration, the simulator's message delivery
         // would trigger the receive. For this test, we verify the send succeeds.

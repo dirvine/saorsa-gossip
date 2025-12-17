@@ -23,23 +23,25 @@ pub async fn check_for_update() -> Result<Option<String>> {
         .current_version(current_version)
         .build()
     {
-        Ok(updater) => {
-            match updater.get_latest_release() {
-                Ok(release) => {
-                    if release.version.as_str() > current_version {
-                        tracing::info!("New version available: {} (current: {})", release.version, current_version);
-                        Ok(Some(release.version))
-                    } else {
-                        tracing::debug!("Already on latest version: {}", current_version);
-                        Ok(None)
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!("Failed to check for updates: {}", e);
+        Ok(updater) => match updater.get_latest_release() {
+            Ok(release) => {
+                if release.version.as_str() > current_version {
+                    tracing::info!(
+                        "New version available: {} (current: {})",
+                        release.version,
+                        current_version
+                    );
+                    Ok(Some(release.version))
+                } else {
+                    tracing::debug!("Already on latest version: {}", current_version);
                     Ok(None)
                 }
             }
-        }
+            Err(e) => {
+                tracing::warn!("Failed to check for updates: {}", e);
+                Ok(None)
+            }
+        },
         Err(e) => {
             tracing::warn!("Failed to build updater: {}", e);
             Ok(None)
@@ -87,7 +89,10 @@ pub fn start_background_checker() {
             tokio::time::sleep(check_interval).await;
 
             if let Ok(Some(new_version)) = check_for_update().await {
-                tracing::warn!("⚠️  Update available: {} - please restart with the new version", new_version);
+                tracing::warn!(
+                    "⚠️  Update available: {} - please restart with the new version",
+                    new_version
+                );
             }
         }
     });

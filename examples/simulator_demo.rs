@@ -4,7 +4,7 @@
 //! protocols under various network conditions including latency, packet
 //! loss, and topology changes.
 
-use saorsa_gossip_simulator::{NetworkSimulator, LinkConfig, Topology};
+use saorsa_gossip_simulator::{LinkConfig, NetworkSimulator, Topology};
 use std::time::Duration;
 use tokio::time::sleep;
 
@@ -23,17 +23,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Configure realistic network conditions
     let network_config = LinkConfig {
-        latency_ms: 50,        // 50ms average latency
+        latency_ms: 50,           // 50ms average latency
         bandwidth_bps: 1_000_000, // 1 Mbps
         packet_loss_rate: 0.02,   // 2% packet loss
-        jitter_ms: 10,         // 10ms jitter
+        jitter_ms: 10,            // 10ms jitter
     };
 
     simulator.set_link_config_all(network_config.clone());
 
     println!("✓ Created simulator with:");
     println!("  - 5 nodes in mesh topology");
-    println!("  - {}ms latency, {}% packet loss", network_config.latency_ms, network_config.packet_loss_rate * 100.0);
+    println!(
+        "  - {}ms latency, {}% packet loss",
+        network_config.latency_ms,
+        network_config.packet_loss_rate * 100.0
+    );
     println!("  - 5x time acceleration");
 
     // Start the simulation
@@ -61,9 +65,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Simulate network degradation (high latency scenario)
     println!("\n🌊 Simulating network congestion...");
     let congested_config = LinkConfig {
-        latency_ms: 200,       // High latency
+        latency_ms: 200,        // High latency
         bandwidth_bps: 100_000, // Low bandwidth
-        packet_loss_rate: 0.1, // High loss
+        packet_loss_rate: 0.1,  // High loss
         jitter_ms: 50,
     };
 
@@ -72,7 +76,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     simulator.set_link_config(1, 2, congested_config.clone());
 
     println!("✓ Applied congestion to links 0→1 and 1→2:");
-    println!("  - {}ms latency, {}% packet loss", congested_config.latency_ms, congested_config.packet_loss_rate * 100.0);
+    println!(
+        "  - {}ms latency, {}% packet loss",
+        congested_config.latency_ms,
+        congested_config.packet_loss_rate * 100.0
+    );
 
     // Wait a bit to simulate time passing
     sleep(Duration::from_millis(100)).await;

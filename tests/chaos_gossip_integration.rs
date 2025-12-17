@@ -3,15 +3,14 @@
 //! These tests integrate the chaos engineering framework with actual
 //! gossip protocols to verify resilience under adverse conditions.
 
+use saorsa_gossip_crdt_sync::{DeltaCrdt, OrSet};
+use saorsa_gossip_simulator::{
+    ChaosEvent, ChaosInjector, ChaosScenario, LinkConfig, NetworkSimulator, Topology,
+};
+use saorsa_gossip_types::PeerId;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
-use saorsa_gossip_simulator::{
-    NetworkSimulator, ChaosInjector, ChaosEvent, ChaosScenario,
-    Topology, LinkConfig,
-};
-use saorsa_gossip_types::PeerId;
-use saorsa_gossip_crdt_sync::{OrSet, DeltaCrdt};
 
 /// Test: CRDT convergence under network partition
 /// - Create 3 replicas
@@ -24,11 +23,13 @@ async fn test_crdt_convergence_under_partition() -> Result<(), Box<dyn std::erro
     println!("🔬 Testing: CRDT Convergence Under Network Partition");
 
     // Create simulator with 3 nodes
-    let simulator = Arc::new(RwLock::new(NetworkSimulator::new()
-        .with_topology(Topology::Mesh)
-        .with_nodes(3)
-        .with_time_dilation(5.0)
-        .with_seed(123)));
+    let simulator = Arc::new(RwLock::new(
+        NetworkSimulator::new()
+            .with_topology(Topology::Mesh)
+            .with_nodes(3)
+            .with_time_dilation(5.0)
+            .with_seed(123),
+    ));
 
     simulator.write().await.set_link_config_all(LinkConfig {
         latency_ms: 50,
@@ -131,14 +132,29 @@ async fn test_crdt_convergence_under_partition() -> Result<(), Box<dyn std::erro
     // Phase 4: Verify eventual consistency
     println!("\n  [Phase 4] Verifying eventual consistency...");
     let expected_items = vec![
-        "item_a", "item_b",
-        "partition_item_1", "partition_item_2", "partition_item_3"
+        "item_a",
+        "item_b",
+        "partition_item_1",
+        "partition_item_2",
+        "partition_item_3",
     ];
 
     for item in &expected_items {
-        assert!(replica1.contains(&item.to_string()), "Replica 1 missing {}", item);
-        assert!(replica2.contains(&item.to_string()), "Replica 2 missing {}", item);
-        assert!(replica3.contains(&item.to_string()), "Replica 3 missing {}", item);
+        assert!(
+            replica1.contains(&item.to_string()),
+            "Replica 1 missing {}",
+            item
+        );
+        assert!(
+            replica2.contains(&item.to_string()),
+            "Replica 2 missing {}",
+            item
+        );
+        assert!(
+            replica3.contains(&item.to_string()),
+            "Replica 3 missing {}",
+            item
+        );
     }
 
     println!("  ✓ All replicas converged with 5 items");
@@ -158,11 +174,13 @@ async fn test_crdt_convergence_under_partition() -> Result<(), Box<dyn std::erro
 async fn test_message_delivery_under_packet_loss() -> Result<(), Box<dyn std::error::Error>> {
     println!("📡 Testing: Message Delivery Under High Packet Loss");
 
-    let simulator = Arc::new(RwLock::new(NetworkSimulator::new()
-        .with_topology(Topology::Mesh)
-        .with_nodes(5)
-        .with_time_dilation(5.0)
-        .with_seed(456)));
+    let simulator = Arc::new(RwLock::new(
+        NetworkSimulator::new()
+            .with_topology(Topology::Mesh)
+            .with_nodes(5)
+            .with_time_dilation(5.0)
+            .with_seed(456),
+    ));
 
     // Configure with high packet loss
     simulator.write().await.set_link_config_all(LinkConfig {
@@ -193,11 +211,13 @@ async fn test_message_delivery_under_packet_loss() -> Result<(), Box<dyn std::er
 async fn test_membership_convergence_under_churn() -> Result<(), Box<dyn std::error::Error>> {
     println!("👥 Testing: Membership Convergence Under Node Churn");
 
-    let simulator = Arc::new(RwLock::new(NetworkSimulator::new()
-        .with_topology(Topology::Mesh)
-        .with_nodes(5)
-        .with_time_dilation(10.0)
-        .with_seed(789)));
+    let simulator = Arc::new(RwLock::new(
+        NetworkSimulator::new()
+            .with_topology(Topology::Mesh)
+            .with_nodes(5)
+            .with_time_dilation(10.0)
+            .with_seed(789),
+    ));
 
     simulator.write().await.start().await?;
     println!("  ✓ Simulator started with 5 nodes");
@@ -207,7 +227,7 @@ async fn test_membership_convergence_under_churn() -> Result<(), Box<dyn std::er
 
     // Simulate node churn
     println!("\n  [Chaos] Simulating node failures...");
-    
+
     for node_id in 0..3 {
         let failure_event = ChaosEvent::NodeFailure {
             node_id,
@@ -237,11 +257,13 @@ async fn test_membership_convergence_under_churn() -> Result<(), Box<dyn std::er
 async fn test_pubsub_under_latency_spikes() -> Result<(), Box<dyn std::error::Error>> {
     println!("📢 Testing: PubSub Under Latency Spikes");
 
-    let simulator = Arc::new(RwLock::new(NetworkSimulator::new()
-        .with_topology(Topology::Mesh)
-        .with_nodes(5)
-        .with_time_dilation(10.0)
-        .with_seed(321)));
+    let simulator = Arc::new(RwLock::new(
+        NetworkSimulator::new()
+            .with_topology(Topology::Mesh)
+            .with_nodes(5)
+            .with_time_dilation(10.0)
+            .with_seed(321),
+    ));
 
     simulator.write().await.set_link_config_all(LinkConfig {
         latency_ms: 50,
@@ -260,18 +282,18 @@ async fn test_pubsub_under_latency_spikes() -> Result<(), Box<dyn std::error::Er
     let scenario = ChaosScenario {
         name: "latency_spike_test".to_string(),
         duration: Duration::from_secs(3),
-        events: vec![
-            (Duration::from_secs(1), ChaosEvent::LatencySpike {
+        events: vec![(
+            Duration::from_secs(1),
+            ChaosEvent::LatencySpike {
                 latency_ms: 500, // Spike to 500ms
                 duration: Duration::from_millis(1000),
-            }),
-        ],
+            },
+        )],
     };
 
     println!("\n  [Chaos] Injecting latency spikes...");
-    let chaos_handle = tokio::spawn(async move {
-        chaos_injector.run_scenario(scenario, simulator_clone).await
-    });
+    let chaos_handle =
+        tokio::spawn(async move { chaos_injector.run_scenario(scenario, simulator_clone).await });
 
     // Wait for scenario to complete
     chaos_handle.await??;
@@ -296,11 +318,13 @@ async fn test_pubsub_under_latency_spikes() -> Result<(), Box<dyn std::error::Er
 async fn test_combined_chaos_scenario() -> Result<(), Box<dyn std::error::Error>> {
     println!("💥 Testing: Combined Chaos Scenario");
 
-    let simulator = Arc::new(RwLock::new(NetworkSimulator::new()
-        .with_topology(Topology::Mesh)
-        .with_nodes(10)
-        .with_time_dilation(10.0)
-        .with_seed(999)));
+    let simulator = Arc::new(RwLock::new(
+        NetworkSimulator::new()
+            .with_topology(Topology::Mesh)
+            .with_nodes(10)
+            .with_time_dilation(10.0)
+            .with_seed(999),
+    ));
 
     simulator.write().await.start().await?;
     println!("  ✓ Simulator started with 10 nodes");
@@ -313,23 +337,35 @@ async fn test_combined_chaos_scenario() -> Result<(), Box<dyn std::error::Error>
         name: "combined_chaos".to_string(),
         duration: Duration::from_secs(5),
         events: vec![
-            (Duration::from_millis(500), ChaosEvent::NetworkPartition {
-                group_a: vec![0, 1, 2, 3, 4],
-                group_b: vec![5, 6, 7, 8, 9],
-                duration: Duration::from_secs(2),
-            }),
-            (Duration::from_secs(1), ChaosEvent::NodeFailure {
-                node_id: 2,
-                duration: Duration::from_millis(1500),
-            }),
-            (Duration::from_millis(1500), ChaosEvent::MessageLoss {
-                loss_rate: 0.2,
-                duration: Duration::from_secs(2),
-            }),
-            (Duration::from_secs(2), ChaosEvent::LatencySpike {
-                latency_ms: 300,
-                duration: Duration::from_millis(1500),
-            }),
+            (
+                Duration::from_millis(500),
+                ChaosEvent::NetworkPartition {
+                    group_a: vec![0, 1, 2, 3, 4],
+                    group_b: vec![5, 6, 7, 8, 9],
+                    duration: Duration::from_secs(2),
+                },
+            ),
+            (
+                Duration::from_secs(1),
+                ChaosEvent::NodeFailure {
+                    node_id: 2,
+                    duration: Duration::from_millis(1500),
+                },
+            ),
+            (
+                Duration::from_millis(1500),
+                ChaosEvent::MessageLoss {
+                    loss_rate: 0.2,
+                    duration: Duration::from_secs(2),
+                },
+            ),
+            (
+                Duration::from_secs(2),
+                ChaosEvent::LatencySpike {
+                    latency_ms: 300,
+                    duration: Duration::from_millis(1500),
+                },
+            ),
         ],
     };
 
@@ -339,9 +375,8 @@ async fn test_combined_chaos_scenario() -> Result<(), Box<dyn std::error::Error>
     println!("    - 20% message loss");
     println!("    - 300ms latency spike");
 
-    let chaos_handle = tokio::spawn(async move {
-        chaos_injector.run_scenario(scenario, simulator_clone).await
-    });
+    let chaos_handle =
+        tokio::spawn(async move { chaos_injector.run_scenario(scenario, simulator_clone).await });
 
     // Wait for scenario
     chaos_handle.await??;

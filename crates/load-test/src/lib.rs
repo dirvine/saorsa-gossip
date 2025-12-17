@@ -53,18 +53,20 @@
 //! # }
 //! ```
 
+use hdrhistogram::Histogram;
+use rand::prelude::*;
+use rand_pcg::Pcg64;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::RwLock;
 use tokio::time::{self, Instant as TokioInstant};
-use rand::prelude::*;
-use rand_pcg::Pcg64;
-use serde::{Deserialize, Serialize};
 use tracing::{debug, info, warn};
-use hdrhistogram::Histogram;
 
-use saorsa_gossip_simulator::{NetworkSimulator, Topology, SimulatedMessage, MessageType, ChaosInjector};
+use saorsa_gossip_simulator::{
+    ChaosInjector, MessageType, NetworkSimulator, SimulatedMessage, Topology,
+};
 use saorsa_gossip_types::TopicId;
 
 /// Load testing result metrics
@@ -206,7 +208,11 @@ impl LoadTestRunner {
     }
 
     /// Run a complete load test scenario
-    pub async fn run_scenario(&self, scenario: LoadScenario, simulator: Arc<RwLock<NetworkSimulator>>) -> Result<LoadTestResults, LoadTestError> {
+    pub async fn run_scenario(
+        &self,
+        scenario: LoadScenario,
+        simulator: Arc<RwLock<NetworkSimulator>>,
+    ) -> Result<LoadTestResults, LoadTestError> {
         info!("Starting load test scenario: {}", scenario.name);
 
         let start_time = chrono::Utc::now();
@@ -236,7 +242,10 @@ impl LoadTestRunner {
             let injector_clone = injector.clone();
             let simulator_clone = Arc::clone(&simulator);
             tokio::spawn(async move {
-                if let Err(e) = injector_clone.run_scenario(chaos_scenario, simulator_clone).await {
+                if let Err(e) = injector_clone
+                    .run_scenario(chaos_scenario, simulator_clone)
+                    .await
+                {
                     warn!("Chaos scenario failed: {:?}", e);
                 }
             });
@@ -246,7 +255,9 @@ impl LoadTestRunner {
         let message_tasks = self.start_message_generators(&scenario, &simulator).await?;
 
         // Monitor test progress
-        let results = self.monitor_test_progress(scenario.clone(), start_time).await?;
+        let results = self
+            .monitor_test_progress(scenario.clone(), start_time)
+            .await?;
 
         // Clean up - don't stop the simulator as it was passed in
         for task in message_tasks {
@@ -292,17 +303,71 @@ impl LoadTestRunner {
         let topic = TopicId::new([1u8; 32]); // Fixed topic for load testing
 
         match pattern {
-            MessagePattern::Constant { rate_per_second, message_size } => {
-                Self::generate_constant_rate(peer_id, rate_per_second, message_size, topic, stats, simulator).await;
+            MessagePattern::Constant {
+                rate_per_second,
+                message_size,
+            } => {
+                Self::generate_constant_rate(
+                    peer_id,
+                    rate_per_second,
+                    message_size,
+                    topic,
+                    stats,
+                    simulator,
+                )
+                .await;
             }
-            MessagePattern::Burst { messages_per_burst, burst_interval, message_size } => {
-                Self::generate_burst_pattern(peer_id, messages_per_burst, burst_interval, message_size, topic, stats, simulator).await;
+            MessagePattern::Burst {
+                messages_per_burst,
+                burst_interval,
+                message_size,
+            } => {
+                Self::generate_burst_pattern(
+                    peer_id,
+                    messages_per_burst,
+                    burst_interval,
+                    message_size,
+                    topic,
+                    stats,
+                    simulator,
+                )
+                .await;
             }
-            MessagePattern::RampUp { start_rate_per_second, end_rate_per_second, ramp_duration, message_size } => {
-                Self::generate_ramp_up_pattern(peer_id, start_rate_per_second, end_rate_per_second, ramp_duration, message_size, topic, stats, simulator).await;
+            MessagePattern::RampUp {
+                start_rate_per_second,
+                end_rate_per_second,
+                ramp_duration,
+                message_size,
+            } => {
+                Self::generate_ramp_up_pattern(
+                    peer_id,
+                    start_rate_per_second,
+                    end_rate_per_second,
+                    ramp_duration,
+                    message_size,
+                    topic,
+                    stats,
+                    simulator,
+                )
+                .await;
             }
-            MessagePattern::Realistic { base_rate_per_second, peak_multiplier, peak_fraction, message_size } => {
-                Self::generate_realistic_pattern(peer_id, base_rate_per_second, peak_multiplier, peak_fraction, message_size, topic, stats, simulator).await;
+            MessagePattern::Realistic {
+                base_rate_per_second,
+                peak_multiplier,
+                peak_fraction,
+                message_size,
+            } => {
+                Self::generate_realistic_pattern(
+                    peer_id,
+                    base_rate_per_second,
+                    peak_multiplier,
+                    peak_fraction,
+                    message_size,
+                    topic,
+                    stats,
+                    simulator,
+                )
+                .await;
             }
         }
     }
@@ -341,16 +406,18 @@ impl LoadTestRunner {
             // Record send time
             {
                 let mut stats_guard = stats.write().await;
-                stats_guard.send_times.insert(message_id, TokioInstant::now());
+                stats_guard
+                    .send_times
+                    .insert(message_id, TokioInstant::now());
             }
 
             // Send message through simulator
-            if let Err(e) = simulator.read().await.send_message(
-                peer_id,
-                message.to,
-                message.payload,
-                message.message_type,
-            ).await {
+            if let Err(e) = simulator
+                .read()
+                .await
+                .send_message(peer_id, message.to, message.payload, message.message_type)
+                .await
+            {
                 debug!("Failed to send message: {:?}", e);
             }
         }
@@ -392,15 +459,17 @@ impl LoadTestRunner {
                 // Record send time
                 {
                     let mut stats_guard = stats.write().await;
-                    stats_guard.send_times.insert(message_id, TokioInstant::now());
+                    stats_guard
+                        .send_times
+                        .insert(message_id, TokioInstant::now());
                 }
 
-                if let Err(e) = simulator.read().await.send_message(
-                    peer_id,
-                    message.to,
-                    message.payload,
-                    message.message_type,
-                ).await {
+                if let Err(e) = simulator
+                    .read()
+                    .await
+                    .send_message(peer_id, message.to, message.payload, message.message_type)
+                    .await
+                {
                     debug!("Failed to send message: {:?}", e);
                 }
             }
@@ -449,15 +518,17 @@ impl LoadTestRunner {
             // Record send time
             {
                 let mut stats_guard = stats.write().await;
-                stats_guard.send_times.insert(message_id, TokioInstant::now());
+                stats_guard
+                    .send_times
+                    .insert(message_id, TokioInstant::now());
             }
 
-            if let Err(e) = simulator.read().await.send_message(
-                peer_id,
-                message.to,
-                message.payload,
-                message.message_type,
-            ).await {
+            if let Err(e) = simulator
+                .read()
+                .await
+                .send_message(peer_id, message.to, message.payload, message.message_type)
+                .await
+            {
                 debug!("Failed to send message: {:?}", e);
             }
         }
@@ -500,15 +571,17 @@ impl LoadTestRunner {
             // Record send time
             {
                 let mut stats_guard = stats.write().await;
-                stats_guard.send_times.insert(message_id, TokioInstant::now());
+                stats_guard
+                    .send_times
+                    .insert(message_id, TokioInstant::now());
             }
 
-            if let Err(e) = simulator.read().await.send_message(
-                peer_id,
-                message.to,
-                message.payload,
-                message.message_type,
-            ).await {
+            if let Err(e) = simulator
+                .read()
+                .await
+                .send_message(peer_id, message.to, message.payload, message.message_type)
+                .await
+            {
                 debug!("Failed to send message: {:?}", e);
             }
         }
@@ -621,7 +694,10 @@ mod tests {
         };
 
         match pattern {
-            MessagePattern::Constant { rate_per_second, message_size } => {
+            MessagePattern::Constant {
+                rate_per_second,
+                message_size,
+            } => {
                 assert_eq!(rate_per_second, 100);
                 assert_eq!(message_size, 1024);
             }
@@ -638,7 +714,11 @@ mod tests {
         };
 
         match pattern {
-            MessagePattern::Burst { messages_per_burst, burst_interval, message_size } => {
+            MessagePattern::Burst {
+                messages_per_burst,
+                burst_interval,
+                message_size,
+            } => {
                 assert_eq!(messages_per_burst, 50);
                 assert_eq!(burst_interval, Duration::from_millis(500));
                 assert_eq!(message_size, 512);

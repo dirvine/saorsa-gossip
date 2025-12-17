@@ -4,9 +4,9 @@
 //! of the network simulator, showing how to inject various failure
 //! scenarios to test system resilience.
 
-use saorsa_gossip_simulator::{NetworkSimulator, ChaosInjector, ChaosEvent, ChaosScenario};
-use std::time::Duration;
+use saorsa_gossip_simulator::{ChaosEvent, ChaosInjector, ChaosScenario, NetworkSimulator};
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::RwLock;
 
 #[tokio::main]
@@ -16,19 +16,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create a network simulator with challenging conditions
     println!("\n🌐 Setting up network simulator...");
-    let simulator = Arc::new(RwLock::new(NetworkSimulator::new()
-        .with_topology(saorsa_gossip_simulator::Topology::Mesh)
-        .with_nodes(5)
-        .with_time_dilation(5.0) // 5x speedup for demo
-        .with_seed(42))); // Deterministic for reproducible results
+    let simulator = Arc::new(RwLock::new(
+        NetworkSimulator::new()
+            .with_topology(saorsa_gossip_simulator::Topology::Mesh)
+            .with_nodes(5)
+            .with_time_dilation(5.0) // 5x speedup for demo
+            .with_seed(42),
+    )); // Deterministic for reproducible results
 
     // Configure baseline network conditions (already challenging)
-    simulator.write().await.set_link_config_all(saorsa_gossip_simulator::LinkConfig {
-        latency_ms: 100,
-        bandwidth_bps: 500_000, // 500 Kbps
-        packet_loss_rate: 0.02, // 2% baseline loss
-        jitter_ms: 20,
-    });
+    simulator
+        .write()
+        .await
+        .set_link_config_all(saorsa_gossip_simulator::LinkConfig {
+            latency_ms: 100,
+            bandwidth_bps: 500_000, // 500 Kbps
+            packet_loss_rate: 0.02, // 2% baseline loss
+            jitter_ms: 20,
+        });
 
     println!("✓ Created simulator with 5 nodes in mesh topology");
     println!("  - 100ms latency, 2% packet loss baseline");
@@ -50,14 +55,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         name: "network_degradation".to_string(),
         duration: Duration::from_secs(8),
         events: vec![
-            (Duration::from_secs(2), ChaosEvent::LatencySpike {
-                latency_ms: 300,
-                duration: Duration::from_secs(3),
-            }),
-            (Duration::from_secs(4), ChaosEvent::MessageLoss {
-                loss_rate: 0.15, // Additional 15% loss
-                duration: Duration::from_secs(2),
-            }),
+            (
+                Duration::from_secs(2),
+                ChaosEvent::LatencySpike {
+                    latency_ms: 300,
+                    duration: Duration::from_secs(3),
+                },
+            ),
+            (
+                Duration::from_secs(4),
+                ChaosEvent::MessageLoss {
+                    loss_rate: 0.15, // Additional 15% loss
+                    duration: Duration::from_secs(2),
+                },
+            ),
         ],
     };
 
@@ -65,7 +76,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let injector_clone = injector.clone();
     let simulator_clone = Arc::clone(&simulator);
     let scenario1 = tokio::spawn(async move {
-        injector_clone.run_scenario(degradation_scenario, simulator_clone).await
+        injector_clone
+            .run_scenario(degradation_scenario, simulator_clone)
+            .await
     });
 
     // Monitor during scenario
@@ -73,7 +86,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tokio::time::sleep(Duration::from_secs(1)).await;
         let chaos_stats = injector.get_stats().await;
         if chaos_stats.enabled {
-            println!("  [{}] Chaos active: {} events", i + 1, chaos_stats.active_events);
+            println!(
+                "  [{}] Chaos active: {} events",
+                i + 1,
+                chaos_stats.active_events
+            );
         } else {
             println!("  [{}] Normal operation", i + 1);
         }
@@ -89,18 +106,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         name: "extreme_chaos".to_string(),
         duration: Duration::from_secs(6),
         events: vec![
-            (Duration::from_secs(1), ChaosEvent::MessageLoss {
-                loss_rate: 0.3, // 30% loss
-                duration: Duration::from_secs(4),
-            }),
-            (Duration::from_secs(2), ChaosEvent::LatencySpike {
-                latency_ms: 1000, // 1 second!
-                duration: Duration::from_secs(3),
-            }),
-            (Duration::from_secs(3), ChaosEvent::BandwidthThrottling {
-                bandwidth_bps: 10_000, // 10 Kbps - very slow
-                duration: Duration::from_secs(2),
-            }),
+            (
+                Duration::from_secs(1),
+                ChaosEvent::MessageLoss {
+                    loss_rate: 0.3, // 30% loss
+                    duration: Duration::from_secs(4),
+                },
+            ),
+            (
+                Duration::from_secs(2),
+                ChaosEvent::LatencySpike {
+                    latency_ms: 1000, // 1 second!
+                    duration: Duration::from_secs(3),
+                },
+            ),
+            (
+                Duration::from_secs(3),
+                ChaosEvent::BandwidthThrottling {
+                    bandwidth_bps: 10_000, // 10 Kbps - very slow
+                    duration: Duration::from_secs(2),
+                },
+            ),
         ],
     };
 
@@ -108,7 +134,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let injector_clone = injector.clone();
     let simulator_clone = Arc::clone(&simulator);
     let scenario2 = tokio::spawn(async move {
-        injector_clone.run_scenario(extreme_scenario, simulator_clone).await
+        injector_clone
+            .run_scenario(extreme_scenario, simulator_clone)
+            .await
     });
 
     // Monitor during extreme chaos
@@ -116,8 +144,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tokio::time::sleep(Duration::from_secs(1)).await;
         let chaos_stats = injector.get_stats().await;
         let sim_stats = simulator.read().await.get_stats().await;
-        println!("  [{}] Chaos: {} events, Messages: {}",
-                i + 1, chaos_stats.active_events, sim_stats.queued_messages);
+        println!(
+            "  [{}] Chaos: {} events, Messages: {}",
+            i + 1,
+            chaos_stats.active_events,
+            sim_stats.queued_messages
+        );
     }
 
     scenario2.await??;
@@ -128,19 +160,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("-------------------------------------");
 
     let events = vec![
-        ("Node Failure", ChaosEvent::NodeFailure {
-            node_id: 2,
-            duration: Duration::from_secs(3),
-        }),
-        ("Clock Skew", ChaosEvent::ClockSkew {
-            node_id: 1,
-            offset_ms: 500,
-            duration: Duration::from_secs(2),
-        }),
-        ("Message Corruption", ChaosEvent::MessageCorruption {
-            corruption_rate: 0.1,
-            duration: Duration::from_secs(2),
-        }),
+        (
+            "Node Failure",
+            ChaosEvent::NodeFailure {
+                node_id: 2,
+                duration: Duration::from_secs(3),
+            },
+        ),
+        (
+            "Clock Skew",
+            ChaosEvent::ClockSkew {
+                node_id: 1,
+                offset_ms: 500,
+                duration: Duration::from_secs(2),
+            },
+        ),
+        (
+            "Message Corruption",
+            ChaosEvent::MessageCorruption {
+                corruption_rate: 0.1,
+                duration: Duration::from_secs(2),
+            },
+        ),
     ];
 
     for (name, event) in events {

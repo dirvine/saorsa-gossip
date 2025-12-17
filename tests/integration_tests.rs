@@ -6,7 +6,7 @@
 /// Test CRDT synchronization between peers
 #[tokio::test]
 async fn test_crdt_synchronization() -> Result<(), Box<dyn std::error::Error>> {
-    use saorsa_gossip_crdt_sync::{OrSet, DeltaCrdt};
+    use saorsa_gossip_crdt_sync::{DeltaCrdt, OrSet};
 
     // Create two OR-Set instances
     let mut orset1 = OrSet::<String>::new();
@@ -54,20 +54,21 @@ async fn test_message_signing_verification() -> Result<(), Box<dyn std::error::E
 
     // Create message header
     let topic = saorsa_gossip_types::TopicId::new([42u8; 32]);
-    let mut header = saorsa_gossip_types::MessageHeader::new(topic, saorsa_gossip_types::MessageKind::Eager, 10);
-    header.msg_id = saorsa_gossip_types::MessageHeader::calculate_msg_id(
-        &topic,
-        12345,
-        &peer_id,
-        &[1u8; 32],
-    );
+    let mut header =
+        saorsa_gossip_types::MessageHeader::new(topic, saorsa_gossip_types::MessageKind::Eager, 10);
+    header.msg_id =
+        saorsa_gossip_types::MessageHeader::calculate_msg_id(&topic, 12345, &peer_id, &[1u8; 32]);
 
     // Sign the header
     let header_bytes = bincode::serialize(&header)?;
     let signature = identity.sign(&header_bytes)?;
 
     // Verify signature (in real scenario, other peers would do this)
-    let is_valid = saorsa_gossip_identity::MlDsaKeyPair::verify(identity.public_key(), &header_bytes, &signature)?;
+    let is_valid = saorsa_gossip_identity::MlDsaKeyPair::verify(
+        identity.public_key(),
+        &header_bytes,
+        &signature,
+    )?;
     assert!(is_valid);
 
     Ok(())
@@ -76,7 +77,7 @@ async fn test_message_signing_verification() -> Result<(), Box<dyn std::error::E
 /// Test network simulator basic functionality
 #[tokio::test]
 async fn test_network_simulator_basic() -> Result<(), Box<dyn std::error::Error>> {
-    use saorsa_gossip_simulator::{NetworkSimulator, LinkConfig, Topology};
+    use saorsa_gossip_simulator::{LinkConfig, NetworkSimulator, Topology};
 
     // Create simulator with 3 nodes in mesh topology
     let mut simulator = NetworkSimulator::new()
@@ -111,16 +112,18 @@ async fn test_network_simulator_basic() -> Result<(), Box<dyn std::error::Error>
 /// Test chaos engineering with network simulator
 #[tokio::test]
 async fn test_chaos_engineering_integration() -> Result<(), Box<dyn std::error::Error>> {
-    use saorsa_gossip_simulator::{NetworkSimulator, ChaosInjector, ChaosEvent, ChaosScenario};
-    use std::time::Duration;
+    use saorsa_gossip_simulator::{ChaosEvent, ChaosInjector, ChaosScenario, NetworkSimulator};
     use std::sync::Arc;
+    use std::time::Duration;
     use tokio::sync::RwLock;
 
     // Create simulator with 4 nodes
-    let simulator = Arc::new(RwLock::new(NetworkSimulator::new()
-        .with_nodes(4)
-        .with_time_dilation(10.0) // Fast testing
-        .with_seed(999)));
+    let simulator = Arc::new(RwLock::new(
+        NetworkSimulator::new()
+            .with_nodes(4)
+            .with_time_dilation(10.0) // Fast testing
+            .with_seed(999),
+    ));
 
     // Create chaos injector
     let injector = ChaosInjector::new();
@@ -144,20 +147,20 @@ async fn test_chaos_engineering_integration() -> Result<(), Box<dyn std::error::
     let scenario = ChaosScenario {
         name: "test_scenario".to_string(),
         duration: Duration::from_secs(5),
-        events: vec![
-            (Duration::from_secs(1), ChaosEvent::MessageLoss {
+        events: vec![(
+            Duration::from_secs(1),
+            ChaosEvent::MessageLoss {
                 loss_rate: 0.05,
                 duration: Duration::from_secs(2),
-            }),
-        ],
+            },
+        )],
     };
 
     // Run the scenario
     let injector_clone = injector.clone();
     let simulator_clone = Arc::clone(&simulator);
-    let scenario_handle = tokio::spawn(async move {
-        injector_clone.run_scenario(scenario, simulator_clone).await
-    });
+    let scenario_handle =
+        tokio::spawn(async move { injector_clone.run_scenario(scenario, simulator_clone).await });
 
     // Wait a bit for scenario to start
     tokio::time::sleep(Duration::from_millis(500)).await;
@@ -180,7 +183,7 @@ async fn test_chaos_engineering_integration() -> Result<(), Box<dyn std::error::
 /// Test predefined chaos scenarios
 #[tokio::test]
 async fn test_predefined_chaos_scenarios() -> Result<(), Box<dyn std::error::Error>> {
-    use saorsa_gossip_simulator::{NetworkSimulator, ChaosEvent};
+    use saorsa_gossip_simulator::{ChaosEvent, NetworkSimulator};
     use std::time::Duration;
 
     let scenarios = NetworkSimulator::create_chaos_scenarios();

@@ -26,10 +26,8 @@ enum OrSetOp {
 
 fn orset_op_strategy() -> impl Strategy<Value = OrSetOp> {
     prop_oneof![
-        ("[a-z]{3,8}", replica_id_strategy())
-            .prop_map(|(s, rid)| OrSetOp::Add(s, rid)),
-        "[a-z]{3,8}"
-            .prop_map(OrSetOp::Remove),
+        ("[a-z]{3,8}", replica_id_strategy()).prop_map(|(s, rid)| OrSetOp::Add(s, rid)),
+        "[a-z]{3,8}".prop_map(OrSetOp::Remove),
     ]
 }
 

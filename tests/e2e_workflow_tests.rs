@@ -3,11 +3,11 @@
 //! These tests verify complete user journeys through the Saorsa Gossip system,
 //! simulating realistic usage patterns and ensuring all components work together.
 
+use saorsa_gossip_crdt_sync::{DeltaCrdt, OrSet};
+use saorsa_gossip_identity::MlDsaKeyPair;
+use saorsa_gossip_types::{MessageHeader, MessageKind, PeerId, TopicId};
 use std::time::Duration;
 use tokio::time::sleep;
-use saorsa_gossip_identity::MlDsaKeyPair;
-use saorsa_gossip_types::{PeerId, TopicId, MessageHeader, MessageKind};
-use saorsa_gossip_crdt_sync::{OrSet, DeltaCrdt};
 
 /// Test: New user bootstrap workflow
 /// - Generate identity
@@ -46,12 +46,7 @@ async fn test_new_user_bootstrap_workflow() -> Result<(), Box<dyn std::error::Er
     println!("  [5/5] Publishing message...");
     let message_data = b"Hello, Saorsa Gossip!";
     let content_hash = blake3::hash(message_data);
-    let msg_id = MessageHeader::calculate_msg_id(
-        &chat_topic,
-        1,
-        &peer_id,
-        content_hash.as_bytes(),
-    );
+    let msg_id = MessageHeader::calculate_msg_id(&chat_topic, 1, &peer_id, content_hash.as_bytes());
     println!("      ✓ Message published: {:?}", msg_id);
 
     println!("✅ New User Bootstrap Workflow: PASSED");
@@ -81,19 +76,17 @@ async fn test_multi_peer_message_dissemination() -> Result<(), Box<dyn std::erro
 
     // Form topology (full mesh)
     println!("  [2/4] Forming mesh topology...");
-    println!("      ✓ {} peer connections established", num_peers * (num_peers - 1));
+    println!(
+        "      ✓ {} peer connections established",
+        num_peers * (num_peers - 1)
+    );
 
     // Peer 0 publishes a message
     println!("  [3/4] Peer 0 publishing message...");
     let topic = TopicId::new([42u8; 32]);
     let message = b"Broadcast from peer 0";
     let content_hash = blake3::hash(message);
-    let msg_id = MessageHeader::calculate_msg_id(
-        &topic,
-        1,
-        &peers[0].1,
-        content_hash.as_bytes(),
-    );
+    let msg_id = MessageHeader::calculate_msg_id(&topic, 1, &peers[0].1, content_hash.as_bytes());
     println!("      ✓ Message ID: {:?}", msg_id);
 
     // Simulate propagation
@@ -269,7 +262,10 @@ async fn test_group_communication_workflow() -> Result<(), Box<dyn std::error::E
     // User leaves
     println!("  [5/5] User 0 leaving group...");
     println!("      ✓ Updated MLS group state");
-    println!("      ✓ Re-keyed for remaining {} members", members.len() - 1);
+    println!(
+        "      ✓ Re-keyed for remaining {} members",
+        members.len() - 1
+    );
 
     println!("✅ Group Communication Workflow: PASSED");
     Ok(())
@@ -296,7 +292,10 @@ async fn test_rendezvous_discovery_workflow() -> Result<(), Box<dyn std::error::
     println!("  [2/4] Searching for capability providers...");
     let seeker_identity = MlDsaKeyPair::generate()?;
     let seeker_id = PeerId::from_pubkey(seeker_identity.public_key());
-    println!("      ✓ Seeker {:?} searching for: {}", seeker_id, capability);
+    println!(
+        "      ✓ Seeker {:?} searching for: {}",
+        seeker_id, capability
+    );
 
     // Discover matching peers
     println!("  [3/4] Discovering providers...");

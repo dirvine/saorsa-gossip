@@ -9,8 +9,8 @@
 mod ant_quic_transport;
 mod peer_cache;
 
-pub use ant_quic_transport::{AntQuicTransport, AntQuicTransportConfig};
 pub use ant_quic::nat_traversal_api::EndpointRole;
+pub use ant_quic_transport::{AntQuicTransport, AntQuicTransportConfig};
 pub use peer_cache::{PeerCache, PeerCacheConfig, PeerCacheStats};
 
 use anyhow::Result;
@@ -35,6 +35,10 @@ pub trait GossipTransport: Send + Sync {
     /// Dial a peer and establish QUIC connection
     async fn dial(&self, peer: PeerId, addr: SocketAddr) -> Result<()>;
 
+    /// Dial a bootstrap node directly by address (no coordinator needed)
+    /// Returns the PeerId of the connected bootstrap node
+    async fn dial_bootstrap(&self, addr: SocketAddr) -> Result<PeerId>;
+
     /// Listen on a socket address for incoming connections
     async fn listen(&self, bind: SocketAddr) -> Result<()>;
 
@@ -51,6 +55,39 @@ pub trait GossipTransport: Send + Sync {
 
     /// Receive a message from any peer on any stream
     async fn receive_message(&self) -> Result<(PeerId, StreamType, bytes::Bytes)>;
+}
+
+// Blanket implementation for Arc<T> to allow calling trait methods through Arc
+#[async_trait::async_trait]
+impl<T: GossipTransport + ?Sized> GossipTransport for std::sync::Arc<T> {
+    async fn dial(&self, peer: PeerId, addr: SocketAddr) -> Result<()> {
+        (**self).dial(peer, addr).await
+    }
+
+    async fn dial_bootstrap(&self, addr: SocketAddr) -> Result<PeerId> {
+        (**self).dial_bootstrap(addr).await
+    }
+
+    async fn listen(&self, bind: SocketAddr) -> Result<()> {
+        (**self).listen(bind).await
+    }
+
+    async fn close(&self) -> Result<()> {
+        (**self).close().await
+    }
+
+    async fn send_to_peer(
+        &self,
+        peer: PeerId,
+        stream_type: StreamType,
+        data: bytes::Bytes,
+    ) -> Result<()> {
+        (**self).send_to_peer(peer, stream_type, data).await
+    }
+
+    async fn receive_message(&self) -> Result<(PeerId, StreamType, bytes::Bytes)> {
+        (**self).receive_message().await
+    }
 }
 
 /// Transport configuration
@@ -129,6 +166,24 @@ impl GossipTransport for QuicTransport {
             .send((peer, addr))
             .map_err(|e| anyhow::anyhow!("Failed to send connection: {}", e))?;
         Ok(())
+    }
+
+    async fn dial_bootstrap(&self, addr: SocketAddr) -> Result<PeerId> {
+        // Placeholder implementation - generate a deterministic peer ID from address
+        let mut id_bytes = [0u8; 32];
+        let addr_bytes = addr.to_string();
+        let hash = {
+            use std::hash::{Hash, Hasher};
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            addr_bytes.hash(&mut hasher);
+            hasher.finish()
+        };
+        id_bytes[..8].copy_from_slice(&hash.to_le_bytes());
+        let peer_id = PeerId::new(id_bytes);
+        self.connection_tx
+            .send((peer_id, addr))
+            .map_err(|e| anyhow::anyhow!("Failed to send connection: {}", e))?;
+        Ok(peer_id)
     }
 
     async fn listen(&self, _bind: SocketAddr) -> Result<()> {

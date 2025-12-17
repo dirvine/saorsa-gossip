@@ -23,23 +23,25 @@ pub async fn check_for_update() -> Result<Option<String>> {
         .current_version(current_version)
         .build()
     {
-        Ok(updater) => {
-            match updater.get_latest_release() {
-                Ok(release) => {
-                    if release.version.as_str() > current_version {
-                        tracing::info!("New version available: {} (current: {})", release.version, current_version);
-                        Ok(Some(release.version))
-                    } else {
-                        tracing::debug!("Already on latest version: {}", current_version);
-                        Ok(None)
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!("Failed to check for updates: {}", e);
+        Ok(updater) => match updater.get_latest_release() {
+            Ok(release) => {
+                if release.version.as_str() > current_version {
+                    tracing::info!(
+                        "New version available: {} (current: {})",
+                        release.version,
+                        current_version
+                    );
+                    Ok(Some(release.version))
+                } else {
+                    tracing::debug!("Already on latest version: {}", current_version);
                     Ok(None)
                 }
             }
-        }
+            Err(e) => {
+                tracing::warn!("Failed to check for updates: {}", e);
+                Ok(None)
+            }
+        },
         Err(e) => {
             tracing::warn!("Failed to build updater: {}", e);
             Ok(None)
@@ -86,8 +88,14 @@ pub async fn start_background_checker() {
             tokio::time::sleep(check_interval).await;
 
             if let Ok(Some(new_version)) = check_for_update().await {
-                tracing::info!("Update available: {} - run 'saorsa-gossip update' to upgrade", new_version);
-                println!("\n🔔 Update available: {} - run 'saorsa-gossip update' to upgrade\n", new_version);
+                tracing::info!(
+                    "Update available: {} - run 'saorsa-gossip update' to upgrade",
+                    new_version
+                );
+                println!(
+                    "\n🔔 Update available: {} - run 'saorsa-gossip update' to upgrade\n",
+                    new_version
+                );
             }
         }
     });
@@ -123,6 +131,9 @@ pub async fn silent_update_check(config_dir: &std::path::Path) {
     }
 
     if let Ok(Some(new_version)) = check_for_update().await {
-        println!("\n🔔 Update available: {} - run 'saorsa-gossip update' to upgrade\n", new_version);
+        println!(
+            "\n🔔 Update available: {} - run 'saorsa-gossip update' to upgrade\n",
+            new_version
+        );
     }
 }

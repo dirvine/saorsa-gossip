@@ -352,6 +352,27 @@ impl AntQuicTransport {
         self.peer_cache.as_ref()
     }
 
+    /// Get the external/reflexive address as observed by remote peers
+    ///
+    /// This returns the public address of this endpoint as seen by other peers,
+    /// discovered via OBSERVED_ADDRESS frames during QUIC connections.
+    ///
+    /// This is the native QUIC address discovery mechanism and should be preferred
+    /// over any custom address reflection protocols.
+    ///
+    /// Returns `None` if:
+    /// - No connections are active
+    /// - No OBSERVED_ADDRESS frame has been received from any peer
+    pub fn get_external_address(&self) -> Option<SocketAddr> {
+        match self.node.get_observed_external_address() {
+            Ok(addr) => addr,
+            Err(e) => {
+                debug!("Failed to get observed external address: {}", e);
+                None
+            }
+        }
+    }
+
     /// Spawn background task to receive incoming messages
     ///
     /// IMPORTANT: This implementation directly accepts streams from connections
@@ -706,6 +727,58 @@ fn gossip_peer_id_to_ant(gossip_id: &GossipPeerId) -> AntPeerId {
     AntPeerId(gossip_id.to_bytes())
 }
 
+impl AntQuicTransport {
+    /// Fallback to using QuicP2PNode.send_to_peer for outgoing connections
+    /// This is used when the connection is not found in the NAT endpoint's map
+    async fn send_via_node_fallback(
+        &self,
+        peer: GossipPeerId,
+        ant_peer_id: &AntPeerId,
+        buf: &[u8],
+    ) -> Result<()> {
+        debug!(
+            "Attempting node fallback send to peer {:?} ({} bytes)",
+            ant_peer_id,
+            buf.len()
+        );
+
+        let send_result = self.node.send_to_peer(ant_peer_id, buf).await;
+
+        match send_result {
+            Ok(()) => {
+                // Use a placeholder address for tracking since we don't know the real one
+                let peer_addr = SocketAddr::from(([127, 0, 0, 1], 8080));
+                self.add_peer(peer, peer_addr).await;
+
+                if let Some(cache) = &self.peer_cache {
+                    cache.mark_success(peer, peer_addr).await;
+                }
+
+                info!(
+                    "Successfully sent {} bytes to peer {} via node fallback",
+                    buf.len(),
+                    peer
+                );
+                Ok(())
+            }
+            Err(e) => {
+                warn!(
+                    "Node fallback send failed for peer {:?}: {}",
+                    ant_peer_id, e
+                );
+                self.remove_peer(&peer).await;
+
+                if let Some(cache) = &self.peer_cache {
+                    let peer_addr = SocketAddr::from(([127, 0, 0, 1], 8080));
+                    cache.mark_failure(peer, peer_addr).await;
+                }
+
+                Err(anyhow!("Failed to send to peer via node fallback: {}", e))
+            }
+        }
+    }
+}
+
 #[async_trait::async_trait]
 impl GossipTransport for AntQuicTransport {
     async fn dial(&self, peer: GossipPeerId, addr: SocketAddr) -> Result<()> {
@@ -714,7 +787,10 @@ impl GossipTransport for AntQuicTransport {
         // Try direct connection first (treat as bootstrap/server) if no coordinators configured
         // This allows P2P mesh without a dedicated coordinator if peers are reachable
         if self.bootstrap_nodes.is_empty() {
-            info!("No coordinators configured, attempting direct connection to {}", addr);
+            info!(
+                "No coordinators configured, attempting direct connection to {}",
+                addr
+            );
             match self.node.connect_to_bootstrap(addr).await {
                 Ok(_) => {
                     info!("Successfully connected directly to peer {}", peer);
@@ -747,6 +823,41 @@ impl GossipTransport for AntQuicTransport {
                 warn!("Failed to connect to peer {}: {}", peer, e);
                 self.remove_peer(&peer).await;
                 Err(anyhow!("Failed to connect to peer: {}", e))
+            }
+        }
+    }
+
+    async fn dial_bootstrap(&self, addr: SocketAddr) -> Result<GossipPeerId> {
+        info!("Dialing bootstrap node at {} (no coordinator needed)", addr);
+
+        match self.node.connect_to_bootstrap(addr).await {
+            Ok(ant_peer_id) => {
+                let gossip_peer_id = ant_peer_id_to_gossip(&ant_peer_id);
+
+                info!(
+                    "Successfully connected to bootstrap {} (PeerId: {})",
+                    addr, gossip_peer_id
+                );
+
+                // Store bootstrap peer ID for future reference
+                self.bootstrap_peer_ids
+                    .write()
+                    .await
+                    .insert(addr, gossip_peer_id);
+
+                // Also track in connected_peers
+                self.add_peer(gossip_peer_id, addr).await;
+
+                // Update peer cache if present
+                if let Some(cache) = &self.peer_cache {
+                    cache.mark_success(gossip_peer_id, addr).await;
+                }
+
+                Ok(gossip_peer_id)
+            }
+            Err(e) => {
+                warn!("Failed to connect to bootstrap {}: {}", addr, e);
+                Err(anyhow!("Failed to connect to bootstrap: {}", e))
             }
         }
     }
@@ -793,16 +904,59 @@ impl GossipTransport for AntQuicTransport {
         buf.push(stream_type_byte);
         buf.extend_from_slice(&data);
 
-        // Send via ant-quic
-        let send_result = self.node.send_to_peer(&ant_peer_id, &buf).await;
+        // CRITICAL FIX: Directly use NAT endpoint's connection map instead of
+        // QuicP2PNode.connected_peers which may not have incoming connections.
+        // The NAT endpoint tracks ALL connections (both incoming and outgoing)
+        // via its internal connections map, populated by accept_connection().
+        let nat_endpoint = self
+            .node
+            .get_nat_endpoint()
+            .map_err(|e| anyhow!("Failed to get NAT endpoint: {}", e))?;
 
-        match send_result {
-            Ok(()) => {
-                // For now, use a placeholder address - in a production implementation,
-                // this would be obtained from the ant-quic connection metadata
-                let peer_addr = SocketAddr::from(([127, 0, 0, 1], 8080));
+        // Try to get the connection directly from NAT endpoint
+        let connection = match nat_endpoint.get_connection(&ant_peer_id) {
+            Ok(Some(conn)) => conn,
+            Ok(None) => {
+                // No connection found - try falling back to node.send_to_peer
+                // which may have the peer in its outgoing connections map
+                debug!(
+                    "No connection in NAT endpoint for peer {:?}, trying node fallback",
+                    ant_peer_id
+                );
+                return self.send_via_node_fallback(peer, &ant_peer_id, &buf).await;
+            }
+            Err(e) => {
+                warn!("Error getting connection for peer {:?}: {}", ant_peer_id, e);
+                return self.send_via_node_fallback(peer, &ant_peer_id, &buf).await;
+            }
+        };
 
-                // Track successful connection (with LRU eviction)
+        // Send directly via the connection
+        let peer_addr = connection.remote_address();
+        debug!(
+            "Found connection for peer {:?} at {}, sending {} bytes",
+            ant_peer_id,
+            peer_addr,
+            buf.len()
+        );
+
+        match connection.open_uni().await {
+            Ok(mut send_stream) => {
+                if let Err(e) = send_stream.write_all(&buf).await {
+                    warn!(
+                        "Failed to write to stream for peer {:?}: {}",
+                        ant_peer_id, e
+                    );
+                    self.remove_peer(&peer).await;
+                    return Err(anyhow!("Failed to write to stream: {}", e));
+                }
+
+                if let Err(e) = send_stream.finish() {
+                    warn!("Failed to finish stream for peer {:?}: {}", ant_peer_id, e);
+                    // Don't fail the send if finish fails - data was written
+                }
+
+                // Track successful connection
                 self.add_peer(peer, peer_addr).await;
 
                 // Update peer cache on success
@@ -810,17 +964,19 @@ impl GossipTransport for AntQuicTransport {
                     cache.mark_success(peer, peer_addr).await;
                 }
 
-                debug!("Successfully sent {} bytes to peer {}", buf.len(), peer);
+                info!(
+                    "Successfully sent {} bytes to peer {} via direct NAT connection",
+                    buf.len(),
+                    peer
+                );
                 Ok(())
             }
             Err(e) => {
-                // Update peer cache on failure
-                if let Some(cache) = &self.peer_cache {
-                    let peer_addr = SocketAddr::from(([127, 0, 0, 1], 8080));
-                    cache.mark_failure(peer, peer_addr).await;
-                }
-
-                Err(anyhow!("Failed to send to peer: {}", e))
+                warn!(
+                    "Failed to open stream for peer {:?}: {}, trying node fallback",
+                    ant_peer_id, e
+                );
+                self.send_via_node_fallback(peer, &ant_peer_id, &buf).await
             }
         }
     }
