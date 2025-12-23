@@ -183,6 +183,12 @@ pub struct LoadTestRunner {
     start_time: Arc<RwLock<Option<TokioInstant>>>,
 }
 
+impl Default for LoadTestRunner {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl LoadTestRunner {
     /// Create a new load test runner
     pub fn new() -> Self {
@@ -477,6 +483,7 @@ impl LoadTestRunner {
     }
 
     /// Generate ramp-up pattern messages
+    #[allow(clippy::too_many_arguments)]
     async fn generate_ramp_up_pattern(
         peer_id: u32,
         start_rate: u32,
@@ -535,6 +542,7 @@ impl LoadTestRunner {
     }
 
     /// Generate realistic pattern messages
+    #[allow(clippy::too_many_arguments)]
     async fn generate_realistic_pattern(
         peer_id: u32,
         base_rate: u32,

@@ -478,7 +478,7 @@ impl PeerCache {
     /// `required_connections` successful connections are established.
     ///
     /// # Arguments
-    /// * `connect_fn` - Async function to connect to a peer, returns Result<bool> (true = success)
+    /// * `connect_fn` - Async function to connect to a peer, returns `Result<bool>` (true = success)
     /// * `batch_size` - Number of peers per batch (default: 50)
     /// * `max_concurrent` - Maximum concurrent connections (default: 100)
     /// * `required_connections` - Stop after this many successes (default: 10)

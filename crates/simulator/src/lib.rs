@@ -49,9 +49,9 @@ use rand_pcg::Pcg64;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tokio::sync::{mpsc, Mutex, RwLock};
-use tokio::time::{self, Instant as TokioInstant};
+use tokio::time::Instant as TokioInstant;
 use tracing::{debug, info, trace, warn};
 
 /// Unique identifier for simulated nodes
@@ -172,7 +172,8 @@ pub struct NetworkSimulator {
     default_link_config: LinkConfig,
     /// Message queue with delivery times
     message_queue: Arc<RwLock<VecDeque<(TokioInstant, SimulatedMessage)>>>,
-    /// Simulator virtual time
+    /// Simulator virtual time (for future time manipulation support)
+    #[allow(dead_code)]
     virtual_time: Arc<RwLock<TokioInstant>>,
     /// Time dilation factor (1.0 = real time, 2.0 = half speed, 0.5 = double speed)
     time_dilation: f64,
@@ -215,6 +216,12 @@ pub enum SimulatorError {
     NotRunning,
     #[error("Invalid topology configuration")]
     InvalidTopology,
+}
+
+impl Default for NetworkSimulator {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl NetworkSimulator {
@@ -689,6 +696,12 @@ impl NetworkSimulator {
     }
 }
 
+impl Default for ChaosInjector {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ChaosInjector {
     /// Create a new chaos injector
     pub fn new() -> Self {
@@ -886,7 +899,8 @@ impl ChaosInjector {
         }
     }
 
-    /// Clean up expired chaos events
+    /// Clean up expired chaos events (for future periodic cleanup support)
+    #[allow(dead_code)]
     async fn cleanup_expired_events(&self) {
         let now = TokioInstant::now();
         let mut active = self.active_events.write().await;
@@ -972,7 +986,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_add_nodes() {
-        let mut simulator = NetworkSimulator::new().with_nodes(3);
+        let simulator = NetworkSimulator::new().with_nodes(3);
         assert_eq!(simulator.nodes.len(), 3);
         assert!(simulator.nodes.contains_key(&0));
         assert!(simulator.nodes.contains_key(&1));

@@ -5,7 +5,7 @@
 
 use saorsa_gossip_crdt_sync::{DeltaCrdt, OrSet};
 use saorsa_gossip_identity::MlDsaKeyPair;
-use saorsa_gossip_types::{MessageHeader, MessageKind, PeerId, TopicId};
+use saorsa_gossip_types::{MessageHeader, PeerId, TopicId};
 use std::time::Duration;
 use tokio::time::sleep;
 
@@ -39,7 +39,7 @@ async fn test_new_user_bootstrap_workflow() -> Result<(), Box<dyn std::error::Er
     // Step 4: Subscribe to topics
     println!("  [4/5] Subscribing to topics...");
     let chat_topic = TopicId::new([1u8; 32]);
-    let announcements_topic = TopicId::new([2u8; 32]);
+    let _announcements_topic = TopicId::new([2u8; 32]);
     println!("      ✓ Subscribed to: chat, announcements");
 
     // Step 5: Send a message

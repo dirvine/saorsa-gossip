@@ -80,6 +80,7 @@ pub async fn perform_update() -> Result<()> {
 }
 
 /// Background update checker that checks every 6 hours
+#[allow(dead_code)]
 pub async fn start_background_checker() {
     tokio::spawn(async {
         let check_interval = Duration::from_secs(6 * 60 * 60); // 6 hours
@@ -117,11 +118,7 @@ pub async fn should_check_update(config_dir: &std::path::Path) -> bool {
     }
 
     // Update last check time
-    if tokio::fs::write(&last_check_file, b"").await.is_ok() {
-        true
-    } else {
-        false
-    }
+    tokio::fs::write(&last_check_file, b"").await.is_ok()
 }
 
 /// Perform a silent update check and notify if available (non-blocking)

@@ -78,10 +78,10 @@ proptest! {
         // Both replicas should have the same elements
         // (We can't directly compare OrSet equality, so we check contains for each item)
         let all_items: Vec<String> = operations.iter()
-            .filter_map(|op| {
+            .map(|op| {
                 match op {
-                    OrSetOp::Add(item, _) => Some(item.clone()),
-                    OrSetOp::Remove(item) => Some(item.clone()),
+                    OrSetOp::Add(item, _) => item.clone(),
+                    OrSetOp::Remove(item) => item.clone(),
                 }
             })
             .collect();

@@ -30,7 +30,8 @@ pub struct SimulatedGossipTransport {
     simulator: Arc<RwLock<NetworkSimulator>>,
     /// Map of peer IDs to node IDs
     peer_to_node: Arc<RwLock<PeerMap>>,
-    /// Map of node IDs to peer IDs
+    /// Map of node IDs to peer IDs (for future reverse lookup support)
+    #[allow(dead_code)]
     node_to_peer: Arc<RwLock<NodePeerMap>>,
     /// Channel for receiving messages
     receiver: Arc<Mutex<mpsc::UnboundedReceiver<(PeerId, StreamType, Bytes)>>>,
@@ -181,15 +182,13 @@ impl SimulatedGossipNetwork {
         self.node_to_peer.write().await.insert(node_id, peer_id);
 
         // Create the transport
-        let transport = SimulatedGossipTransport::new(
+        SimulatedGossipTransport::new(
             peer_id,
             node_id,
             Arc::clone(&self.simulator),
             Arc::clone(&self.peer_to_node),
             Arc::clone(&self.node_to_peer),
-        );
-
-        transport
+        )
     }
 
     /// Start the simulator
@@ -285,7 +284,7 @@ mod tests {
         let peer2 = PeerId::new([2u8; 32]);
 
         let transport1 = network.add_peer(peer1, 0).await;
-        let transport2 = network.add_peer(peer2, 1).await;
+        let _transport2 = network.add_peer(peer2, 1).await;
 
         // Send a message from peer1 to peer2
         let message = Bytes::from("Hello, peer2!");
@@ -296,6 +295,5 @@ mod tests {
 
         // Note: In a real integration, the simulator's message delivery
         // would trigger the receive. For this test, we verify the send succeeds.
-        assert!(true);
     }
 }

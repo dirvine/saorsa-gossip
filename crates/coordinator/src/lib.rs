@@ -95,7 +95,7 @@ impl Default for CoordinatorRoles {
 }
 
 /// NAT class detection per SPEC2 §8
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum NatClass {
     /// Endpoint-Independent Mapping (best for hole punching)
@@ -105,13 +105,8 @@ pub enum NatClass {
     /// Symmetric NAT (hardest to traverse)
     Symmetric,
     /// Unknown NAT type
+    #[default]
     Unknown,
-}
-
-impl Default for NatClass {
-    fn default() -> Self {
-        Self::Unknown
-    }
 }
 
 /// Address hint for NAT traversal
