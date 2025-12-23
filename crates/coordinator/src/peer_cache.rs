@@ -222,8 +222,6 @@ impl PeerCache {
     /// cache.save(Path::new("/tmp/peer_cache.cbor")).expect("save failed");
     /// ```
     pub fn save(&self, path: &std::path::Path) -> anyhow::Result<()> {
-        #[allow(unused_imports)] // Used for lock_exclusive() method
-        use fs2::FileExt;
         use std::io::Write;
 
         // Create parent directories if needed
@@ -234,8 +232,8 @@ impl PeerCache {
         // Open file for writing
         let file = std::fs::File::create(path)?;
 
-        // Acquire exclusive lock
-        file.lock_exclusive()?;
+        // Acquire exclusive lock (use fully qualified syntax to avoid unstable_name_collisions)
+        fs2::FileExt::lock_exclusive(&file)?;
 
         // Serialize entries to CBOR
         let entries_vec: Vec<PeerCacheEntry> = self
@@ -267,9 +265,6 @@ impl PeerCache {
     /// let cache = PeerCache::load(Path::new("/tmp/peer_cache.cbor")).expect("load failed");
     /// ```
     pub fn load(path: &std::path::Path) -> anyhow::Result<Self> {
-        #[allow(unused_imports)] // Used for lock_shared() method
-        use fs2::FileExt;
-
         // If file doesn't exist, return empty cache
         if !path.exists() {
             return Ok(Self::new());
@@ -278,8 +273,8 @@ impl PeerCache {
         // Open file for reading
         let file = std::fs::File::open(path)?;
 
-        // Acquire shared lock
-        file.lock_shared()?;
+        // Acquire shared lock (use fully qualified syntax to avoid unstable_name_collisions)
+        fs2::FileExt::lock_shared(&file)?;
 
         // Deserialize from CBOR
         let reader = std::io::BufReader::new(file);
