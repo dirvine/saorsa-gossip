@@ -397,7 +397,6 @@ async fn handle_identity(action: IdentityAction, config_dir: &std::path::Path) -
 
 /// Handle network commands
 async fn handle_network(action: NetworkAction, config_dir: &std::path::Path) -> Result<()> {
-    use ant_quic::nat_traversal_api::EndpointRole;
     use saorsa_gossip_identity::Identity;
     use saorsa_gossip_transport::AntQuicTransport;
 
@@ -425,11 +424,9 @@ async fn handle_network(action: NetworkAction, config_dir: &std::path::Path) -> 
             println!("  Coordinator: {}", coordinator);
             println!("  Local bind: {}", bind);
 
-            // Create transport (automatically connects to bootstrap coordinators)
+            // Create transport (automatically connects to known peers)
             println!("  Creating transport and establishing QUIC connection...");
-            let transport =
-                AntQuicTransport::new(bind_addr, EndpointRole::Client, vec![coordinator_addr])
-                    .await?;
+            let transport = AntQuicTransport::new(bind_addr, vec![coordinator_addr]).await?;
 
             println!("\n✓ Transport initialized and connected!");
             println!(

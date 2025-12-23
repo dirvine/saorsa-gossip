@@ -84,8 +84,7 @@ async fn main() -> Result<()> {
     tracing::info!("Initializing transport on {}...", args.bind);
     let transport = saorsa_gossip_transport::AntQuicTransport::new(
         args.bind,
-        ant_quic::nat_traversal_api::EndpointRole::Bootstrap,
-        vec![], // Bootstrap nodes don't need other bootstrap addresses
+        vec![], // Coordinator nodes don't need other known peers
     )
     .await?;
 

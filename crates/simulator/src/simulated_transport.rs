@@ -103,6 +103,21 @@ impl GossipTransport for SimulatedGossipTransport {
         Ok(())
     }
 
+    async fn dial_bootstrap(&self, addr: SocketAddr) -> Result<PeerId> {
+        // In simulation, generate a deterministic peer ID from address
+        let mut id_bytes = [0u8; 32];
+        let addr_bytes = addr.to_string();
+        let hash = {
+            use std::hash::{Hash, Hasher};
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            addr_bytes.hash(&mut hasher);
+            hasher.finish()
+        };
+        id_bytes[..8].copy_from_slice(&hash.to_le_bytes());
+        let peer_id = PeerId::new(id_bytes);
+        Ok(peer_id)
+    }
+
     async fn listen(&self, _bind: SocketAddr) -> Result<()> {
         // Mark as listening
         *self.listening.write().await = true;

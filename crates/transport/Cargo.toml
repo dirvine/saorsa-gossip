@@ -17,7 +17,7 @@ async-trait = { workspace = true }
 bytes = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
-ant-quic = "0.10.3"
+ant-quic = { workspace = true }
 serde = { workspace = true }
 bincode = { workspace = true }
 dirs = "5.0"

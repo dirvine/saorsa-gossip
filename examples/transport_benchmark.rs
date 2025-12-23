@@ -114,15 +114,10 @@ async fn run_coordinator(args: &[String]) -> Result<()> {
         .max_capacity(10000);
     let cache = Arc::new(PeerCache::new(cache_config)?);
 
-    // Create transport in Bootstrap mode
+    // Create transport (symmetric P2P node)
     println!("⏳ Initializing transport with peer cache...");
-    let transport = AntQuicTransport::new_with_cache(
-        bind_addr,
-        ant_quic::nat_traversal_api::EndpointRole::Bootstrap,
-        vec![],
-        Some(Arc::clone(&cache)),
-    )
-    .await?;
+    let transport =
+        AntQuicTransport::new_with_cache(bind_addr, vec![], Some(Arc::clone(&cache))).await?;
 
     let peer_id = transport.peer_id();
     println!("✓ Transport initialized");
@@ -204,7 +199,6 @@ async fn run_benchmark(args: &[String]) -> Result<()> {
 
     let transport = AntQuicTransport::new_with_cache(
         bind_addr,
-        ant_quic::nat_traversal_api::EndpointRole::Client,
         vec![coordinator_addr],
         Some(Arc::clone(&cache)),
     )
