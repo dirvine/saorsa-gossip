@@ -605,10 +605,7 @@ cargo test --test integration_tests
 cargo bench --bench performance
 
 # Code coverage report
-./scripts/coverage.sh
-
-# Run all medium priority improvements
-./scripts/medium-priority-improvements.sh
+cargo tarpaulin --out Html
 ```
 
 ### Code Quality
@@ -626,10 +623,9 @@ cargo doc --all-features --no-deps --open
 
 ## 📖 Documentation
 
-- [**SPEC.md**](SPEC.md) - Complete protocol specification
+- [**DESIGN.md**](DESIGN.md) - Complete architecture and protocol specification
+- [**Architecture Decisions**](docs/adr/) - Design decisions and rationale (ADRs)
 - [**API Docs**](https://docs.rs/saorsa-gossip) - Rust API documentation
-- [**Architecture Decisions**](docs/adr/) - Design decisions and rationale
-- [**Examples**](examples/) - Usage examples (coming soon)
 
 ### Architecture Decision Records (ADRs)
 
