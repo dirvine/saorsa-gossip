@@ -628,7 +628,27 @@ cargo doc --all-features --no-deps --open
 
 - [**SPEC.md**](SPEC.md) - Complete protocol specification
 - [**API Docs**](https://docs.rs/saorsa-gossip) - Rust API documentation
+- [**Architecture Decisions**](docs/adr/) - Design decisions and rationale
 - [**Examples**](examples/) - Usage examples (coming soon)
+
+### Architecture Decision Records (ADRs)
+
+We document significant architectural decisions in ADRs. These explain *why* we made specific choices:
+
+| ADR | Title | Summary |
+|-----|-------|---------|
+| [ADR-001](docs/adr/ADR-001-protocol-layering.md) | Protocol Layering | HyParView + SWIM + Plumtree: three-layer gossip architecture |
+| [ADR-002](docs/adr/ADR-002-post-quantum-cryptography.md) | Post-Quantum Cryptography | Pure PQC with ML-DSA-65, ML-KEM-768, ChaCha20-Poly1305 |
+| [ADR-003](docs/adr/ADR-003-delta-crdt-synchronization.md) | Delta-CRDT Synchronization | OR-Set, LWW-Register with IBLT anti-entropy |
+| [ADR-004](docs/adr/ADR-004-seedless-bootstrap.md) | Seedless Bootstrap | Coordinator Adverts for infrastructure-free discovery |
+| [ADR-005](docs/adr/ADR-005-rendezvous-shards.md) | Rendezvous Shards | 65,536 content-addressed shards as DHT replacement |
+| [ADR-006](docs/adr/ADR-006-mls-group-encryption.md) | MLS Group Encryption | RFC 9420 for efficient group key management |
+| [ADR-007](docs/adr/ADR-007-foaf-discovery.md) | FOAF Discovery | Privacy-preserving bounded social graph walks |
+| [ADR-008](docs/adr/ADR-008-stream-multiplexing.md) | Stream Multiplexing | 3-stream QUIC design for protocol isolation |
+| [ADR-009](docs/adr/ADR-009-peer-scoring.md) | Peer Scoring | Multi-metric quality tracking for routing |
+| [ADR-010](docs/adr/ADR-010-deterministic-simulator.md) | Deterministic Simulator | PCG-based reproducible chaos testing |
+
+See [docs/adr/README.md](docs/adr/README.md) for the complete index and ADR template.
 
 ### Crate Documentation
 
