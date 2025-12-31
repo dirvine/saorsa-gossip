@@ -40,7 +40,7 @@ saorsa-pqc = "0.3.14"
 saorsa-mls = "0.3.1"
 
 # QUIC transport
-ant-quic = "0.14.65"
+ant-quic = "0.14.107"
 
 # Hashing
 blake3 = "1.5"

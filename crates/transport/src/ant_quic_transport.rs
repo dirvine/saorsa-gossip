@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, RwLock};
 use tracing::{debug, error, info, warn};
 
-use crate::{GossipTransport, PeerCache, StreamType};
+use crate::{BootstrapCache, GossipTransport, StreamType};
 
 // Import ant-quic types (v0.14+ API)
 use ant_quic::{Node, NodeConfig, PeerId as AntPeerId};
@@ -90,8 +90,8 @@ pub struct AntQuicTransport {
     connected_peers: Arc<RwLock<HashMap<GossipPeerId, (SocketAddr, Instant)>>>,
     /// Bootstrap peer IDs mapped to their addresses
     bootstrap_peer_ids: Arc<RwLock<HashMap<SocketAddr, GossipPeerId>>>,
-    /// Optional peer cache for persistent peer storage
-    peer_cache: Option<Arc<PeerCache>>,
+    /// Optional bootstrap cache for persistent peer storage (using ant-quic's cache)
+    bootstrap_cache: Option<Arc<BootstrapCache>>,
     /// Configuration
     config: AntQuicTransportConfig,
 }
@@ -107,29 +107,29 @@ impl AntQuicTransport {
         Self::with_config(config, None).await
     }
 
-    /// Create a new Ant-QUIC transport with optional peer cache
+    /// Create a new Ant-QUIC transport with optional bootstrap cache
     ///
     /// # Arguments
     /// * `bind_addr` - Local address to bind to
     /// * `known_peers` - List of known peer addresses
-    /// * `peer_cache` - Optional peer cache for persistent peer storage
+    /// * `bootstrap_cache` - Optional bootstrap cache for persistent peer storage
     pub async fn new_with_cache(
         bind_addr: SocketAddr,
         known_peers: Vec<SocketAddr>,
-        peer_cache: Option<Arc<PeerCache>>,
+        bootstrap_cache: Option<Arc<BootstrapCache>>,
     ) -> Result<Self> {
         let config = AntQuicTransportConfig::new(bind_addr, known_peers);
-        Self::with_config(config, peer_cache).await
+        Self::with_config(config, bootstrap_cache).await
     }
 
     /// Create a new Ant-QUIC transport with custom configuration
     ///
     /// # Arguments
     /// * `config` - Transport configuration
-    /// * `peer_cache` - Optional peer cache for persistent peer storage
+    /// * `bootstrap_cache` - Optional bootstrap cache for persistent peer storage
     pub async fn with_config(
         config: AntQuicTransportConfig,
-        peer_cache: Option<Arc<PeerCache>>,
+        bootstrap_cache: Option<Arc<BootstrapCache>>,
     ) -> Result<Self> {
         info!(
             "Creating Ant-QUIC transport at {} with {} known peers",
@@ -168,7 +168,7 @@ impl AntQuicTransport {
             gossip_peer_id,
             connected_peers: Arc::new(RwLock::new(HashMap::new())),
             bootstrap_peer_ids: Arc::new(RwLock::new(HashMap::new())),
-            peer_cache: peer_cache.clone(),
+            bootstrap_cache: bootstrap_cache.clone(),
             config: config.clone(),
         };
 
@@ -254,9 +254,9 @@ impl AntQuicTransport {
             .map(|(peer_id, _)| *peer_id)
     }
 
-    /// Get reference to peer cache if configured
-    pub fn peer_cache(&self) -> Option<&Arc<PeerCache>> {
-        self.peer_cache.as_ref()
+    /// Get reference to bootstrap cache if configured
+    pub fn bootstrap_cache(&self) -> Option<&Arc<BootstrapCache>> {
+        self.bootstrap_cache.as_ref()
     }
 
     /// Get the external/reflexive address as observed by remote peers
@@ -420,23 +420,36 @@ impl GossipTransport for AntQuicTransport {
         info!("Dialing peer {} at {}", peer, addr);
 
         // Connect to the peer by address
+        let start = Instant::now();
         match self.node.connect_addr(addr).await {
             Ok(peer_conn) => {
                 let gossip_id = ant_peer_id_to_gossip(&peer_conn.peer_id);
-                info!("Successfully connected to peer {} at {}", gossip_id, addr);
+                let rtt_ms = start.elapsed().as_millis() as u32;
+                info!(
+                    "Successfully connected to peer {} at {} (rtt: {}ms)",
+                    gossip_id, addr, rtt_ms
+                );
 
                 // Track the connection
                 self.add_peer(gossip_id, addr).await;
 
-                // Update peer cache if present
-                if let Some(cache) = &self.peer_cache {
-                    cache.mark_success(gossip_id, addr).await;
+                // Update bootstrap cache if present
+                if let Some(cache) = &self.bootstrap_cache {
+                    let ant_peer_id = gossip_peer_id_to_ant(&gossip_id);
+                    cache.record_success(&ant_peer_id, rtt_ms).await;
                 }
 
                 Ok(())
             }
             Err(e) => {
                 warn!("Failed to connect to peer at {}: {}", addr, e);
+
+                // Record failure in bootstrap cache
+                if let Some(cache) = &self.bootstrap_cache {
+                    let ant_peer_id = gossip_peer_id_to_ant(&peer);
+                    cache.record_failure(&ant_peer_id).await;
+                }
+
                 self.remove_peer(&peer).await;
                 Err(anyhow!("Failed to connect to peer: {}", e))
             }
@@ -446,13 +459,15 @@ impl GossipTransport for AntQuicTransport {
     async fn dial_bootstrap(&self, addr: SocketAddr) -> Result<GossipPeerId> {
         info!("Dialing bootstrap node at {}", addr);
 
+        let start = Instant::now();
         match self.node.connect_addr(addr).await {
             Ok(peer_conn) => {
                 let gossip_peer_id = ant_peer_id_to_gossip(&peer_conn.peer_id);
+                let rtt_ms = start.elapsed().as_millis() as u32;
 
                 info!(
-                    "Successfully connected to bootstrap {} (PeerId: {})",
-                    addr, gossip_peer_id
+                    "Successfully connected to bootstrap {} (PeerId: {}, rtt: {}ms)",
+                    addr, gossip_peer_id, rtt_ms
                 );
 
                 // Store bootstrap peer ID
@@ -464,9 +479,10 @@ impl GossipTransport for AntQuicTransport {
                 // Also track in connected_peers
                 self.add_peer(gossip_peer_id, addr).await;
 
-                // Update peer cache if present
-                if let Some(cache) = &self.peer_cache {
-                    cache.mark_success(gossip_peer_id, addr).await;
+                // Update bootstrap cache if present
+                if let Some(cache) = &self.bootstrap_cache {
+                    let ant_peer_id = gossip_peer_id_to_ant(&gossip_peer_id);
+                    cache.record_success(&ant_peer_id, rtt_ms).await;
                 }
 
                 Ok(gossip_peer_id)

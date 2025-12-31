@@ -5,12 +5,20 @@
 //! - 0-RTT resumption where safe
 //! - Path migration by default
 //! - PQC handshake with ant-quic
+//!
+//! # Peer Caching
+//!
+//! This crate uses ant-quic's `BootstrapCache` for persistent peer storage
+//! with epsilon-greedy selection for balanced exploration and exploitation.
 
 mod ant_quic_transport;
-mod peer_cache;
 
 pub use ant_quic_transport::{AntQuicTransport, AntQuicTransportConfig};
-pub use peer_cache::{PeerCache, PeerCacheConfig, PeerCacheStats};
+
+// Re-export ant-quic's bootstrap cache as our peer cache
+pub use ant_quic::{
+    BootstrapCache, BootstrapCacheConfig, BootstrapCacheConfigBuilder, CacheEvent, CacheStats,
+};
 
 use anyhow::Result;
 use saorsa_gossip_types::PeerId;

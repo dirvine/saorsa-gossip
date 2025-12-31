@@ -21,7 +21,7 @@
 use anyhow::Result;
 use bytes::Bytes;
 use saorsa_gossip_transport::{
-    AntQuicTransport, GossipTransport, PeerCache, PeerCacheConfig, StreamType,
+    AntQuicTransport, BootstrapCache, BootstrapCacheConfig, GossipTransport, StreamType,
 };
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -108,14 +108,16 @@ async fn run_coordinator(args: &[String]) -> Result<()> {
     println!("Bind address: {}", bind_addr);
     println!();
 
-    // Create peer cache for coordinator
-    let cache_config = PeerCacheConfig::testing()
-        .cache_filename("coordinator_cache.bin")
-        .max_capacity(10000);
-    let cache = Arc::new(PeerCache::new(cache_config)?);
+    // Create bootstrap cache for coordinator using ant-quic's BootstrapCache
+    let cache_dir = std::env::temp_dir().join("saorsa-benchmark-coordinator");
+    let cache_config = BootstrapCacheConfig::builder()
+        .cache_dir(&cache_dir)
+        .max_peers(10000)
+        .build();
+    let cache = Arc::new(BootstrapCache::open(cache_config).await?);
 
     // Create transport (symmetric P2P node)
-    println!("⏳ Initializing transport with peer cache...");
+    println!("⏳ Initializing transport with bootstrap cache...");
     let transport =
         AntQuicTransport::new_with_cache(bind_addr, vec![], Some(Arc::clone(&cache))).await?;
 
@@ -126,8 +128,8 @@ async fn run_coordinator(args: &[String]) -> Result<()> {
     // Display cache stats
     let stats = cache.stats().await;
     println!(
-        "  Cache: {} total peers, {} viable",
-        stats.total_peers, stats.viable_peers
+        "  Cache: {} total peers ({} relay, {} coordinator)",
+        stats.total_peers, stats.relay_peers, stats.coordinator_peers
     );
     println!();
     println!("📡 Waiting for benchmark clients...");
@@ -187,14 +189,16 @@ async fn run_benchmark(args: &[String]) -> Result<()> {
     println!("Local bind: {}", bind_addr);
     println!();
 
-    // Create peer cache for benchmark client
-    let cache_config = PeerCacheConfig::testing()
-        .cache_filename("benchmark_cache.bin")
-        .max_capacity(10000);
-    let cache = Arc::new(PeerCache::new(cache_config)?);
+    // Create bootstrap cache for benchmark client using ant-quic's BootstrapCache
+    let cache_dir = std::env::temp_dir().join("saorsa-benchmark-client");
+    let cache_config = BootstrapCacheConfig::builder()
+        .cache_dir(&cache_dir)
+        .max_peers(10000)
+        .build();
+    let cache = Arc::new(BootstrapCache::open(cache_config).await?);
 
     // Measure connection time
-    println!("⏳ Connecting to coordinator with peer cache...");
+    println!("⏳ Connecting to coordinator with bootstrap cache...");
     let connect_start = Instant::now();
 
     let transport = AntQuicTransport::new_with_cache(
@@ -213,8 +217,8 @@ async fn run_benchmark(args: &[String]) -> Result<()> {
     // Display cache stats
     let stats = cache.stats().await;
     println!(
-        "  Cache: {} total peers, {} viable",
-        stats.total_peers, stats.viable_peers
+        "  Cache: {} total peers ({} relay, {} coordinator)",
+        stats.total_peers, stats.relay_peers, stats.coordinator_peers
     );
     println!();
 
@@ -361,8 +365,9 @@ async fn run_benchmark(args: &[String]) -> Result<()> {
     println!("📦 Final Cache Stats");
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     println!("  Total peers: {}", final_stats.total_peers);
-    println!("  Viable peers: {}", final_stats.viable_peers);
-    println!("  Cache file: {}", final_stats.cache_file.display());
+    println!("  Relay peers: {}", final_stats.relay_peers);
+    println!("  Coordinator peers: {}", final_stats.coordinator_peers);
+    println!("  Average quality: {:.2}", final_stats.average_quality);
     println!();
 
     Ok(())
