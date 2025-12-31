@@ -302,7 +302,7 @@ mod tests {
             CoordinatorRoles::default(),
             vec![],
             NatClass::Eim,
-            100, // 100ms validity (long enough to insert)
+            500, // 500ms validity (long enough to insert on all platforms)
         );
         advert.sign(&sk).expect("signing");
         let inserted = handler.handle_advert(advert, &pk).expect("handle");
@@ -311,7 +311,7 @@ mod tests {
         assert_eq!(handler.cache().len(), 1);
 
         // Wait for expiry
-        std::thread::sleep(std::time::Duration::from_millis(150));
+        std::thread::sleep(std::time::Duration::from_millis(600));
 
         // Before pruning, len() should return 0 (filters valid adverts)
         assert_eq!(
