@@ -203,6 +203,12 @@ pub trait PubSub: Send + Sync {
     /// Called when subscribing to a topic to populate the eager peers list
     /// with currently connected peers for message dissemination.
     async fn initialize_topic_peers(&self, topic: TopicId, peers: Vec<PeerId>);
+
+    /// Handle an incoming pubsub message from a peer
+    ///
+    /// Routes the message to appropriate handler based on MessageKind (Eager, IHave, IWant).
+    /// Called by the transport layer when receiving PubSub messages.
+    async fn handle_message(&self, from: PeerId, data: Bytes) -> Result<()>;
 }
 
 /// Plumtree pub/sub implementation
@@ -405,6 +411,14 @@ impl<T: GossipTransport + 'static> PlumtreePubSub<T> {
             .clone()
             .ok_or_else(|| anyhow!("EAGER missing payload"))?;
         state.cache_message(msg_id, payload.clone(), message.header.clone());
+
+        // Add sender to eager_peers if not already present
+        // This ensures bidirectional message flow - if a peer sends us messages
+        // on a topic, they've subscribed and should receive our messages too.
+        if !state.eager_peers.contains(&from) && !state.lazy_peers.contains(&from) {
+            state.eager_peers.insert(from);
+            debug!(peer_id = %from, topic = ?topic, "Added sender to eager_peers");
+        }
 
         // Deliver to local subscribers
         let data = (from, payload.clone());
@@ -688,6 +702,55 @@ impl<T: GossipTransport + 'static> PubSub for PlumtreePubSub<T> {
 
     async fn initialize_topic_peers(&self, topic: TopicId, peers: Vec<PeerId>) {
         PlumtreePubSub::initialize_topic_peers(self, topic, peers).await
+    }
+
+    async fn handle_message(&self, from: PeerId, data: Bytes) -> Result<()> {
+        // Deserialize the GossipMessage
+        let message: GossipMessage = bincode::deserialize(&data)
+            .map_err(|e| anyhow!("Failed to deserialize PubSub message: {}", e))?;
+
+        let topic_id = message.header.topic;
+        let msg_kind = message.header.kind;
+
+        debug!(
+            msg_kind = ?msg_kind,
+            peer_id = %from,
+            topic = ?topic_id,
+            "Handling incoming PubSub message"
+        );
+
+        // Route to appropriate handler based on message kind
+        // Only handle pubsub-specific message kinds (Eager, IHave, IWant)
+        match msg_kind {
+            MessageKind::Eager => {
+                self.handle_eager(from, topic_id, message).await
+            }
+            MessageKind::IHave => {
+                // IHAVE payload contains Vec<MessageIdType>
+                if let Some(payload) = &message.payload {
+                    let msg_ids: Vec<MessageIdType> = bincode::deserialize(payload)
+                        .map_err(|e| anyhow!("Failed to deserialize IHAVE payload: {}", e))?;
+                    self.handle_ihave(from, topic_id, msg_ids).await
+                } else {
+                    Err(anyhow!("IHAVE message missing payload"))
+                }
+            }
+            MessageKind::IWant => {
+                // IWANT payload contains Vec<MessageIdType>
+                if let Some(payload) = &message.payload {
+                    let msg_ids: Vec<MessageIdType> = bincode::deserialize(payload)
+                        .map_err(|e| anyhow!("Failed to deserialize IWANT payload: {}", e))?;
+                    self.handle_iwant(from, topic_id, msg_ids).await
+                } else {
+                    Err(anyhow!("IWANT message missing payload"))
+                }
+            }
+            // Other message kinds (Ping, Ack, Find, Presence, AntiEntropy) are not handled by PubSub
+            _ => {
+                warn!("PubSub received non-pubsub message kind {:?}, ignoring", msg_kind);
+                Ok(())
+            }
+        }
     }
 }
 

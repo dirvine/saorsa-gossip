@@ -299,10 +299,10 @@ impl AntQuicTransport {
                         loop {
                             match node_recv.recv(Duration::from_secs(60)).await {
                                 Ok((from_peer_id, data)) => {
-                                    if from_peer_id != peer_id {
-                                        continue; // Not from this peer
-                                    }
-
+                                    // Process messages from ANY peer, not just the one that
+                                    // triggered this spawn. The recv() call returns messages
+                                    // from all connected peers, and filtering by peer_id
+                                    // causes messages from other peers to be silently lost.
                                     if data.is_empty() {
                                         continue;
                                     }
@@ -328,9 +328,9 @@ impl AntQuicTransport {
                                         Bytes::new()
                                     };
 
-                                    // Update peer tracking
-                                    add_peer_with_lru(&peers, from_gossip_id, peer_addr, max_peers)
-                                        .await;
+                                    // Update peer tracking - only update timestamp if already known
+                                    // We don't have the address for messages from other peers
+                                    update_peer_last_seen(&peers, from_gossip_id).await;
 
                                     // Forward to recv channel
                                     if let Err(e) =
@@ -401,6 +401,19 @@ async fn add_peer_with_lru(
     }
 
     peer_map.insert(peer_id, (addr, Instant::now()));
+}
+
+/// Update last_seen timestamp for an existing peer (if known)
+async fn update_peer_last_seen(
+    peers: &Arc<RwLock<HashMap<GossipPeerId, (SocketAddr, Instant)>>>,
+    peer_id: GossipPeerId,
+) {
+    let mut peer_map = peers.write().await;
+    if let Some((addr, _)) = peer_map.get(&peer_id) {
+        let addr = *addr;
+        peer_map.insert(peer_id, (addr, Instant::now()));
+    }
+    // If peer is not known, we can't add them without their address
 }
 
 /// Convert ant-quic PeerId to Gossip PeerId
