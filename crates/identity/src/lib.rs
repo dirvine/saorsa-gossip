@@ -40,6 +40,11 @@ impl MlDsaKeyPair {
         &self.public_key
     }
 
+    /// Get secret key bytes (for transport identity synchronization)
+    pub fn secret_key(&self) -> &[u8] {
+        &self.secret_key
+    }
+
     /// Get saorsa-pqc public key type
     #[allow(dead_code)]
     fn get_public_key_typed(&self) -> Result<saorsa_pqc::MlDsaPublicKey> {

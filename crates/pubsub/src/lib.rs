@@ -722,9 +722,7 @@ impl<T: GossipTransport + 'static> PubSub for PlumtreePubSub<T> {
         // Route to appropriate handler based on message kind
         // Only handle pubsub-specific message kinds (Eager, IHave, IWant)
         match msg_kind {
-            MessageKind::Eager => {
-                self.handle_eager(from, topic_id, message).await
-            }
+            MessageKind::Eager => self.handle_eager(from, topic_id, message).await,
             MessageKind::IHave => {
                 // IHAVE payload contains Vec<MessageIdType>
                 if let Some(payload) = &message.payload {
@@ -747,7 +745,10 @@ impl<T: GossipTransport + 'static> PubSub for PlumtreePubSub<T> {
             }
             // Other message kinds (Ping, Ack, Find, Presence, AntiEntropy) are not handled by PubSub
             _ => {
-                warn!("PubSub received non-pubsub message kind {:?}, ignoring", msg_kind);
+                warn!(
+                    "PubSub received non-pubsub message kind {:?}, ignoring",
+                    msg_kind
+                );
                 Ok(())
             }
         }

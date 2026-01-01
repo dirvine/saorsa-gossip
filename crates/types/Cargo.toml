@@ -14,7 +14,9 @@ readme = "../../README.md"
 bytes = { workspace = true }
 serde = { workspace = true }
 blake3 = { workspace = true }
+sha2 = { workspace = true }
 anyhow = { workspace = true }
+hex = "0.4"
 
 [dev-dependencies]
 proptest = { workspace = true }

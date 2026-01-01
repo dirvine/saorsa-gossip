@@ -20,7 +20,7 @@ use tracing::{debug, error, info, warn};
 use crate::{BootstrapCache, GossipTransport, StreamType};
 
 // Import ant-quic types (v0.14+ API)
-use ant_quic::{Node, NodeConfig, PeerId as AntPeerId};
+use ant_quic::{MlDsaPublicKey, MlDsaSecretKey, Node, NodeConfig, PeerId as AntPeerId};
 
 // Re-export key utils for tests
 #[cfg(test)]
@@ -39,6 +39,10 @@ pub struct AntQuicTransportConfig {
     pub stream_read_limit: usize,
     /// Maximum number of peers to track (default: 1,000)
     pub max_peers: usize,
+    /// Optional ML-DSA keypair bytes (public_key, secret_key) for identity persistence
+    /// If not provided, a fresh keypair is generated.
+    /// This ensures the transport peer ID matches the application's identity peer ID.
+    pub keypair: Option<(Vec<u8>, Vec<u8>)>,
 }
 
 impl AntQuicTransportConfig {
@@ -50,7 +54,15 @@ impl AntQuicTransportConfig {
             channel_capacity: 10_000,
             stream_read_limit: 100 * 1024 * 1024, // 100 MB
             max_peers: 1_000,
+            keypair: None,
         }
+    }
+
+    /// Set the ML-DSA keypair for identity persistence
+    /// This ensures the transport peer ID matches the application's identity peer ID.
+    pub fn with_keypair(mut self, public_key: Vec<u8>, secret_key: Vec<u8>) -> Self {
+        self.keypair = Some((public_key, secret_key));
+        self
     }
 
     /// Set channel capacity for backpressure
@@ -142,10 +154,21 @@ impl AntQuicTransport {
         );
 
         // Create NodeConfig with our settings
-        let node_config = NodeConfig::builder()
+        let mut node_config_builder = NodeConfig::builder()
             .bind_addr(config.bind_addr)
-            .known_peers(config.known_peers.clone())
-            .build();
+            .known_peers(config.known_peers.clone());
+
+        // If a keypair is provided, use it to ensure peer ID consistency with application identity
+        if let Some((pub_key_bytes, sec_key_bytes)) = &config.keypair {
+            let pub_key = MlDsaPublicKey::from_bytes(pub_key_bytes)
+                .map_err(|e| anyhow!("Invalid ML-DSA public key: {}", e))?;
+            let sec_key = MlDsaSecretKey::from_bytes(sec_key_bytes)
+                .map_err(|e| anyhow!("Invalid ML-DSA secret key: {}", e))?;
+            node_config_builder = node_config_builder.keypair(pub_key, sec_key);
+            info!("Using provided ML-DSA keypair for transport identity");
+        }
+
+        let node_config = node_config_builder.build();
 
         // Create the Node
         let node = Node::with_config(node_config)
@@ -268,18 +291,90 @@ impl AntQuicTransport {
     }
 
     /// Spawn background task to receive incoming messages
+    ///
+    /// This spawns two tasks:
+    /// 1. A receiver task that calls `node.recv()` to receive messages from ALL connected peers
+    /// 2. An acceptor task that calls `node.accept()` to track incoming connections
+    ///
+    /// IMPORTANT: The receiver must start immediately, not wait for accept(), because:
+    /// - `node.recv()` receives from ALL connected peers (both inbound and outbound)
+    /// - If we only dial out (never receive incoming), we still need to receive messages
+    /// - Waiting for accept() would block receiving on outbound-only connections
     fn spawn_receiver(&self) {
         let node = Arc::clone(&self.node);
         let recv_tx = self.recv_tx.clone();
         let connected_peers = Arc::clone(&self.connected_peers);
         let max_peers = self.config.max_peers;
-        // Note: stream_read_limit could be used for limiting stream reads in future
+
+        // Task 1: Receive messages from ALL connected peers (inbound and outbound)
+        // This must start immediately, not wait for accept()
+        let node_recv = Arc::clone(&node);
+        let tx = recv_tx;
+        let peers_recv = Arc::clone(&connected_peers);
 
         tokio::spawn(async move {
-            info!("Ant-QUIC receiver task started");
+            info!("Ant-QUIC receiver task started (global message receiver)");
 
             loop {
-                // Accept incoming connections
+                match node_recv.recv(Duration::from_secs(60)).await {
+                    Ok((from_peer_id, data)) => {
+                        if data.is_empty() {
+                            continue;
+                        }
+
+                        let from_gossip_id = ant_peer_id_to_gossip(&from_peer_id);
+
+                        // Parse stream type from first byte
+                        let stream_type = match data.first() {
+                            Some(&0) => StreamType::Membership,
+                            Some(&1) => StreamType::PubSub,
+                            Some(&2) => StreamType::Bulk,
+                            Some(&other) => {
+                                warn!("Unknown stream type byte: {}", other);
+                                continue;
+                            }
+                            None => continue,
+                        };
+
+                        // Extract payload (skip first byte)
+                        let payload = if data.len() > 1 {
+                            Bytes::copy_from_slice(&data[1..])
+                        } else {
+                            Bytes::new()
+                        };
+
+                        // Update peer tracking - only update timestamp if already known
+                        update_peer_last_seen(&peers_recv, from_gossip_id).await;
+
+                        // Forward to recv channel
+                        if let Err(e) = tx.send((from_gossip_id, stream_type, payload)).await {
+                            error!("Failed to forward message: {}", e);
+                            break;
+                        }
+
+                        debug!(
+                            "Forwarded {} bytes ({:?}) from {:?}",
+                            data.len() - 1,
+                            stream_type,
+                            from_gossip_id
+                        );
+                    }
+                    Err(e) => {
+                        // Timeout is expected, just continue
+                        debug!("Receive timeout or error: {}", e);
+                    }
+                }
+            }
+        });
+
+        // Task 2: Accept incoming connections and track them
+        // This runs separately from receiving - it only tracks peer addresses
+        let peers_accept = connected_peers;
+
+        tokio::spawn(async move {
+            info!("Ant-QUIC acceptor task started (incoming connection handler)");
+
+            loop {
                 if let Some(peer_conn) = node.accept().await {
                     let peer_id = peer_conn.peer_id;
                     let peer_addr = peer_conn.remote_addr;
@@ -288,72 +383,7 @@ impl AntQuicTransport {
                     info!("Accepted connection from {:?} at {}", peer_id, peer_addr);
 
                     // Track the peer
-                    add_peer_with_lru(&connected_peers, gossip_peer_id, peer_addr, max_peers).await;
-
-                    // Receive data from this peer
-                    let node_recv = Arc::clone(&node);
-                    let tx = recv_tx.clone();
-                    let peers = Arc::clone(&connected_peers);
-
-                    tokio::spawn(async move {
-                        loop {
-                            match node_recv.recv(Duration::from_secs(60)).await {
-                                Ok((from_peer_id, data)) => {
-                                    // Process messages from ANY peer, not just the one that
-                                    // triggered this spawn. The recv() call returns messages
-                                    // from all connected peers, and filtering by peer_id
-                                    // causes messages from other peers to be silently lost.
-                                    if data.is_empty() {
-                                        continue;
-                                    }
-
-                                    let from_gossip_id = ant_peer_id_to_gossip(&from_peer_id);
-
-                                    // Parse stream type from first byte
-                                    let stream_type = match data.first() {
-                                        Some(&0) => StreamType::Membership,
-                                        Some(&1) => StreamType::PubSub,
-                                        Some(&2) => StreamType::Bulk,
-                                        Some(&other) => {
-                                            warn!("Unknown stream type byte: {}", other);
-                                            continue;
-                                        }
-                                        None => continue,
-                                    };
-
-                                    // Extract payload (skip first byte)
-                                    let payload = if data.len() > 1 {
-                                        Bytes::copy_from_slice(&data[1..])
-                                    } else {
-                                        Bytes::new()
-                                    };
-
-                                    // Update peer tracking - only update timestamp if already known
-                                    // We don't have the address for messages from other peers
-                                    update_peer_last_seen(&peers, from_gossip_id).await;
-
-                                    // Forward to recv channel
-                                    if let Err(e) =
-                                        tx.send((from_gossip_id, stream_type, payload)).await
-                                    {
-                                        error!("Failed to forward message: {}", e);
-                                        break;
-                                    }
-
-                                    debug!(
-                                        "Forwarded {} bytes ({:?}) from {:?}",
-                                        data.len() - 1,
-                                        stream_type,
-                                        from_gossip_id
-                                    );
-                                }
-                                Err(e) => {
-                                    debug!("Receive error for {:?}: {}", peer_id, e);
-                                    break;
-                                }
-                            }
-                        }
-                    });
+                    add_peer_with_lru(&peers_accept, gossip_peer_id, peer_addr, max_peers).await;
                 }
 
                 // Small delay to prevent busy loop

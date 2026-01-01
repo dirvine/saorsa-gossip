@@ -6,7 +6,11 @@
 //! - Wire format types for network messages
 
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::fmt;
+
+/// Domain separator for PeerId derivation (must match ant-quic)
+const PEER_ID_DOMAIN_SEPARATOR: &[u8] = b"AUTONOMI_PEER_ID_V2:";
 
 /// 32-byte topic identifier, one per MLS group
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -58,7 +62,11 @@ impl fmt::Display for TopicId {
     }
 }
 
-/// 32-byte peer identifier: BLAKE3(ML-DSA pubkey)\[:32\]
+/// 32-byte peer identifier: SHA-256(domain_separator || ML-DSA pubkey)
+///
+/// The PeerId derivation MUST match ant-quic's derivation to ensure
+/// consistent peer identification across transport and application layers.
+/// See: ant-quic/src/crypto/raw_public_keys/pqc.rs:derive_peer_id_from_public_key
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct PeerId([u8; 32]);
 
@@ -68,11 +76,22 @@ impl PeerId {
         Self(bytes)
     }
 
-    /// Create a PeerId from a public key using BLAKE3
+    /// Create a PeerId from a public key using SHA-256 with domain separator
+    ///
+    /// This derivation matches ant-quic's `derive_peer_id_from_public_key` exactly:
+    /// - Domain separator: `b"AUTONOMI_PEER_ID_V2:"`
+    /// - Hash function: SHA-256
+    /// - Input: domain_separator || public_key_bytes
+    ///
+    /// This ensures the PeerId is consistent between the transport layer (ant-quic)
+    /// and the application layer (saorsa-gossip).
     pub fn from_pubkey(pubkey: &[u8]) -> Self {
-        let hash = blake3::hash(pubkey);
+        let mut hasher = Sha256::new();
+        hasher.update(PEER_ID_DOMAIN_SEPARATOR);
+        hasher.update(pubkey);
+        let hash = hasher.finalize();
         let mut bytes = [0u8; 32];
-        bytes.copy_from_slice(&hash.as_bytes()[..32]);
+        bytes.copy_from_slice(&hash);
         Self(bytes)
     }
 
