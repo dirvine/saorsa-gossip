@@ -197,6 +197,12 @@ pub trait PubSub: Send + Sync {
 
     /// Unsubscribe from a topic
     async fn unsubscribe(&self, topic: TopicId) -> Result<()>;
+
+    /// Initialize peers for a topic
+    ///
+    /// Called when subscribing to a topic to populate the eager peers list
+    /// with currently connected peers for message dissemination.
+    async fn initialize_topic_peers(&self, topic: TopicId, peers: Vec<PeerId>);
 }
 
 /// Plumtree pub/sub implementation
@@ -678,6 +684,10 @@ impl<T: GossipTransport + 'static> PubSub for PlumtreePubSub<T> {
         let mut topics = self.topics.write().await;
         topics.remove(&topic);
         Ok(())
+    }
+
+    async fn initialize_topic_peers(&self, topic: TopicId, peers: Vec<PeerId>) {
+        PlumtreePubSub::initialize_topic_peers(self, topic, peers).await
     }
 }
 

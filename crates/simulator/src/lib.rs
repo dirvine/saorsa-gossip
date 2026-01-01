@@ -475,21 +475,23 @@ impl NetworkSimulator {
 
             // Process due messages
             loop {
-                let mut queue = message_queue.write().await;
-                if let Some((delivery_time, _message)) = queue.front() {
-                    if *delivery_time <= now {
-                        let message = queue.pop_front().unwrap().1;
-                        drop(queue); // Release lock before async operation
+                let message = {
+                    let mut queue = message_queue.write().await;
+                    match queue.front() {
+                        Some((delivery_time, _)) if *delivery_time <= now => {
+                            queue.pop_front().map(|(_, msg)| msg)
+                        }
+                        _ => None, // Queue empty or next message not due yet
+                    }
+                };
 
-                        // Deliver message to destination node
-                        if let Err(e) = Self::deliver_message(message).await {
+                match message {
+                    Some(msg) => {
+                        if let Err(e) = Self::deliver_message(msg).await {
                             warn!("Failed to deliver message: {:?}", e);
                         }
-                    } else {
-                        break; // Next message not due yet
                     }
-                } else {
-                    break; // Queue empty
+                    None => break,
                 }
             }
 

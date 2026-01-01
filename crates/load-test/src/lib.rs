@@ -42,7 +42,7 @@
 //! };
 //!
 //! // Run the load test
-//! let runner = LoadTestRunner::new();
+//! let runner = LoadTestRunner::new()?;
 //! let results = runner.run_scenario(scenario, simulator).await?;
 //!
 //! println!("Throughput: {} msgs/sec", results.throughput_msgs_per_sec);
@@ -183,34 +183,37 @@ pub struct LoadTestRunner {
     start_time: Arc<RwLock<Option<TokioInstant>>>,
 }
 
-impl Default for LoadTestRunner {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl LoadTestRunner {
     /// Create a new load test runner
-    pub fn new() -> Self {
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the histogram cannot be created (should not happen
+    /// with valid parameters).
+    pub fn new() -> Result<Self, hdrhistogram::CreationError> {
         let rng = Pcg64::seed_from_u64(31415); // Deterministic seed for testing
 
-        Self {
+        Ok(Self {
             rng: Arc::new(Mutex::new(rng)),
             stats: Arc::new(RwLock::new(MessageStats {
                 sent: 0,
                 received: 0,
                 send_times: HashMap::new(),
-                latency_histogram: Histogram::new(3).unwrap(), // 1ms to ~8 hours
+                latency_histogram: Histogram::new(3)?, // 1ms to ~8 hours
             })),
             start_time: Arc::new(RwLock::new(None)),
-        }
+        })
     }
 
     /// Create load test runner with specific seed
-    pub fn with_seed(seed: u64) -> Self {
-        let mut runner = Self::new();
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the histogram cannot be created.
+    pub fn with_seed(seed: u64) -> Result<Self, hdrhistogram::CreationError> {
+        let mut runner = Self::new()?;
         runner.rng = Arc::new(Mutex::new(Pcg64::seed_from_u64(seed)));
-        runner
+        Ok(runner)
     }
 
     /// Run a complete load test scenario
@@ -667,12 +670,13 @@ pub enum LoadTestError {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used)]
 mod tests {
     use super::*;
 
     #[tokio::test]
     async fn test_load_test_runner_creation() {
-        let runner = LoadTestRunner::new();
+        let runner = LoadTestRunner::new().expect("Failed to create runner");
         assert!(runner.start_time.read().await.is_none());
     }
 

@@ -560,7 +560,7 @@ let scenario = LoadScenario {
     chaos_events: vec![], // Optional chaos during load
 };
 
-let runner = LoadTestRunner::new();
+let runner = LoadTestRunner::new()?;
 let results = runner.run_scenario(scenario, simulator).await?;
 ```
 

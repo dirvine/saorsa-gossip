@@ -41,7 +41,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("✓ Simulator started");
 
     // Create load test runner
-    let runner = LoadTestRunner::new();
+    let runner = LoadTestRunner::new()?;
 
     // Scenario 1: Constant Rate Load
     println!("\n📊 Scenario 1: Constant Rate Load");
